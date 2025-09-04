@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test API</title>
+</head>
+<body>
+    <h1>Test Metaobject Creation</h1>
+    <button onclick="testMetaobject()">Test Create Metaobject</button>
+    <div id="result"></div>
+
+    <script>
+        async function testMetaobject() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Testing...';
+            
+            try {
+                const response = await fetch('/api/automation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'action=createMetaobjectDefinitions'
+                });
+                
+                const data = await response.json();
+                resultDiv.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            } catch (error) {
+                resultDiv.innerHTML = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
