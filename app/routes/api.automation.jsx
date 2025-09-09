@@ -18,6 +18,37 @@ export const action = async ({ request }) => {
         const result = await createMetaobjectDefinitions(admin);
         console.log("📊 Metaobject creation result:", result);
         return result;
+      case "saveConfiguration":
+        console.log("💾 Saving configuration...");
+        const saveResult = await saveConfiguration(admin, formData);
+        
+        // Restart cron jobs with new configuration if save was successful
+        if (saveResult.success) {
+          try {
+            const { cronService } = await import('../services/cronService.js');
+            const config = {
+              schedule: formData.get("schedule") || "quarterly",
+              dataPeriod: parseInt(formData.get("dataPeriod") || "3"),
+              aiProvider: formData.get("aiProvider") || "openai",
+              confidenceThreshold: parseFloat(formData.get("confidenceThreshold") || "0.7"),
+              maxBatches: parseInt(formData.get("maxBatches") || "20"),
+              enableNotifications: formData.get("enableNotifications") === "true"
+            };
+            await cronService.restart(config);
+            saveResult.message += " Cron jobs updated!";
+          } catch (cronError) {
+            console.error("❌ Error updating cron jobs:", cronError);
+            saveResult.message += " (Cron update failed)";
+          }
+        }
+        
+        return saveResult;
+      case "loadConfiguration":
+        console.log("📂 Loading configuration...");
+        return await loadConfiguration(admin);
+      case "manageCronJobs":
+        console.log("⏰ Managing cron jobs...");
+        return await manageCronJobs(formData);
       case "testAIIntegration":
         console.log("🤖 Testing AI integration...");
         return await testAIIntegration(formData);
@@ -34,11 +65,19 @@ export const action = async ({ request }) => {
 // Process orders automatically (called by cron or webhook)
 async function processOrdersAutomatically(admin, formData) {
   try {
-    // Always process last 1 month of data
-    const endDate = formData.get("endDate") || new Date().toISOString();
-    const startDate = formData.get("startDate") || new Date(Date.now() - (30 * 24 * 60 * 60 * 1000)).toISOString(); // 1 month ago
+    // Load saved configuration or use defaults
+    let dataPeriodMonths = parseInt(formData.get("dataPeriod"));
     
-    console.log(`🔄 Processing orders from ${startDate} to ${endDate}`);
+    // If no dataPeriod provided, load from saved configuration
+    if (!dataPeriodMonths || isNaN(dataPeriodMonths)) {
+      const configResult = await loadConfiguration(admin);
+      dataPeriodMonths = configResult.success ? configResult.config.dataPeriod : 1;
+    }
+    
+    const endDate = formData.get("endDate") || new Date().toISOString();
+    const startDate = formData.get("startDate") || new Date(Date.now() - (dataPeriodMonths * 30 * 24 * 60 * 60 * 1000)).toISOString(); // configurable months ago
+    
+    console.log(`🔄 Processing orders from ${startDate} to ${endDate} (${dataPeriodMonths} months of data)`);
 
     // 1. Export orders from Shopify
     const orders = await exportOrdersFromShopify(admin, startDate, endDate);
@@ -53,7 +92,7 @@ async function processOrdersAutomatically(admin, formData) {
     const aiResults = await processOrdersWithAI(orders);
 
     // 3. Store results in metaobjects
-    const metaobjectResults = await storeResultsInMetaobjects(admin, aiResults);
+    const metaobjectResults = await storeResultsInMetaobjects(admin, aiResults, formData);
 
     return {
       success: true,
@@ -226,15 +265,8 @@ async function processOrdersWithAI(orders) {
     console.error("❌ Error processing with AI:", error);
     // Return default structure if AI fails
     return {
-      product_pairs: [],
-      customer_recommendations: [],
-      trending_products: [],
-      cross_sell_opportunities: [],
-      summary: {
-        total_orders: orders.length,
-        unique_products: new Set(orders.flatMap(o => o.line_items.map(i => i.product_id))).size,
-        processed_at: new Date().toISOString()
-      }
+      upsell_recommendations: [],
+      fallback_used: true
     };
   }
 }
@@ -348,94 +380,103 @@ function createAIPrompt(data) {
     .slice(0, 10);
 
   return `
-Analyze this e-commerce data and create product recommendations:
+TASK: Analyze e-commerce order data to create upsell recommendations for cart optimization.
 
-Orders analyzed: ${data.orders_count}
-Top co-purchased product pairs: ${JSON.stringify(topCoPurchases)}
-Most popular products: ${JSON.stringify(topProducts)}
+GOAL: When customers add a "main_product" to cart, show them "upsellVariants" that are frequently bought together.
 
-Please return ONLY valid JSON with this exact structure:
+DATA ANALYSIS:
+- Orders analyzed: ${data.orders_count}
+- Co-purchase patterns: ${JSON.stringify(topCoPurchases)}
+- Popular products: ${JSON.stringify(topProducts)}
+
+INSTRUCTIONS:
+1. Find products that are frequently bought together
+2. For each main product, identify 2-4 products that customers often add to the same order
+3. Focus on products with high co-purchase frequency (bought together multiple times)
+4. Create upsell recommendations to increase average order value
+
+REQUIRED OUTPUT FORMAT - Return ONLY this JSON structure:
 {
-  "product_pairs": [
+  "upsell_recommendations": [
     {
-      "product_1_id": "123",
-      "product_2_id": "456", 
-      "confidence_score": 0.85,
-      "frequency": 15,
-      "recommendation_type": "frequently_bought_together"
-    }
-  ],
-  "trending_products": [
+      "main_product": "7148360237189",
+      "upsellVariants": [
+        {"id": "7148360630405"},
+        {"id": "7148360728709"},
+        {"id": "7148360761477"}
+      ]
+    },
     {
-      "product_id": "789",
-      "trend_score": 0.92,
-      "reason": "High purchase frequency"
+      "main_product": "4120463068435", 
+      "upsellVariants": [
+        {"id": "7148360695941"},
+        {"id": "7148360728709"}
+      ]
     }
-  ],
-  "cross_sell_opportunities": [
-    {
-      "base_product_id": "123",
-      "recommended_product_id": "456",
-      "confidence": 0.78,
-      "reason": "Complementary products"
-    }
-  ],
-  "summary": {
-    "total_pairs_found": 5,
-    "confidence_threshold": 0.7,
-    "analysis_date": "${new Date().toISOString()}"
-  }
+  ]
 }
+
+IMPORTANT RULES:
+- Use actual product IDs from the data (remove gid://shopify/Product/ prefix)
+- Only include products that are genuinely bought together (frequency > 2)
+- Limit 2-4 upsellVariants per main_product
+- Focus on increasing sales through smart recommendations
+- NO other fields needed - just main_product and upsellVariants array
 `;
 }
 
-// Create fallback response when AI fails
+// Create fallback response when AI fails - generates your exact JSON format
 function createFallbackResponse(data) {
-  const topCoPurchases = Object.entries(data.co_purchases)
-    .sort(([,a], [,b]) => b - a)
-    .slice(0, 5)
-    .map(([pair, frequency]) => {
-      const [product1, product2] = pair.split('-');
-      return {
-        product_1_id: product1,
-        product_2_id: product2,
-        confidence_score: Math.min(0.9, frequency / 10),
-        frequency,
-        recommendation_type: "frequently_bought_together"
-      };
-    });
+  const upsellRecommendations = [];
+  const processedMainProducts = new Set();
 
-  const topProducts = Object.entries(data.product_frequency)
+  // Process co-purchase data to create upsell recommendations
+  const sortedCoPurchases = Object.entries(data.co_purchases)
     .sort(([,a], [,b]) => b - a)
-    .slice(0, 5)
-    .map(([productId, frequency]) => ({
-      product_id: productId,
-      trend_score: Math.min(0.9, frequency / 20),
-      reason: "High purchase frequency"
-    }));
+    .filter(([, frequency]) => frequency > 2); // Only products bought together more than 2 times
+
+  sortedCoPurchases.forEach(([pair, frequency]) => {
+    const [product1, product2] = pair.split('-');
+    
+    // Clean product IDs (remove gid prefix if present)
+    const mainProduct = product1.replace('gid://shopify/Product/', '');
+    const upsellProduct = product2.replace('gid://shopify/Product/', '');
+
+    // Add to main product's upsell list
+    if (!processedMainProducts.has(mainProduct)) {
+      upsellRecommendations.push({
+        main_product: mainProduct,
+        upsellVariants: []
+      });
+      processedMainProducts.add(mainProduct);
+    }
+
+    // Find the main product entry and add upsell variant
+    const mainProductEntry = upsellRecommendations.find(item => item.main_product === mainProduct);
+    if (mainProductEntry && mainProductEntry.upsellVariants.length < 4) {
+      // Avoid duplicates
+      const alreadyExists = mainProductEntry.upsellVariants.some(variant => variant.id === upsellProduct);
+      if (!alreadyExists) {
+        mainProductEntry.upsellVariants.push({ id: upsellProduct });
+      }
+    }
+  });
 
   return {
-    product_pairs: topCoPurchases,
-    trending_products: topProducts,
-    cross_sell_opportunities: [],
-    summary: {
-      total_pairs_found: topCoPurchases.length,
-      confidence_threshold: 0.7,
-      analysis_date: new Date().toISOString(),
-      fallback_used: true
-    }
+    upsell_recommendations: upsellRecommendations.slice(0, 10), // Limit to top 10 main products
+    fallback_used: true
   };
 }
 
 // Store AI results in Shopify metaobjects (update existing entries)
-async function storeResultsInMetaobjects(admin, aiResults) {
+async function storeResultsInMetaobjects(admin, aiResults, formData) {
   try {
     console.log("💾 Updating AI results in existing metaobjects...");
 
     const results = [];
 
     // Update the single main metaobject with all AI results
-    const mainMetaobject = await updateMainAnalysisMetaobject(admin, aiResults);
+    const mainMetaobject = await updateMainAnalysisMetaobject(admin, aiResults, formData);
     results.push(mainMetaobject);
 
     return {
@@ -454,22 +495,44 @@ async function storeResultsInMetaobjects(admin, aiResults) {
   }
 }
 
+// Helper function to get data period label
+function getDataPeriodLabel(months) {
+  switch(months) {
+    case 1: return "1_month";
+    case 3: return "3_months"; 
+    case 6: return "6_months";
+    case 12: return "1_year";
+    default: return `${months}_months`;
+  }
+}
+
+// No transformation function needed - AI returns data in your exact format!
+
 // Update main analysis metaobject with all AI results
-async function updateMainAnalysisMetaobject(admin, aiResults) {
+async function updateMainAnalysisMetaobject(admin, aiResults, formData) {
   try {
     // First, try to find existing metaobject
     const existingMetaobject = await findExistingAnalysisMetaobject(admin);
     
+    // Get data period from form data or default to 1 month
+    const dataPeriodMonths = parseInt(formData.get("dataPeriod") || "1");
+    const dataPeriodLabel = getDataPeriodLabel(dataPeriodMonths);
+
+    // AI now returns data in your exact format - no transformation needed!
+    const upsellData = aiResults.upsell_recommendations || [];
+    const alternativeData = []; // Can be used for different upsell strategies later
+
     const analysisData = {
-      product_pairs: JSON.stringify(aiResults.product_pairs || []),
-      trending_products: JSON.stringify(aiResults.trending_products || []),
-      cross_sell_opportunities: JSON.stringify(aiResults.cross_sell_opportunities || []),
-      total_pairs_found: (aiResults.product_pairs?.length || 0).toString(),
-      total_trending_products: (aiResults.trending_products?.length || 0).toString(),
-      confidence_threshold: (aiResults.summary?.confidence_threshold || 0.7).toString(),
+      upsell_json_data: JSON.stringify(upsellData),
+      alternative_upsells: JSON.stringify(alternativeData),
+      trending_products: JSON.stringify([]), // Not needed for your use case
+      total_pairs_found: upsellData.length.toString(),
+      total_trending_products: "0",
+      confidence_threshold: "0.7",
       analysis_date: new Date().toISOString(),
-      data_period: "1_month",
-      fallback_used: (aiResults.summary?.fallback_used || false).toString(),
+      data_period: dataPeriodLabel,
+      data_period_months: dataPeriodMonths.toString(),
+      fallback_used: (aiResults.fallback_used || false).toString(),
       last_updated: new Date().toISOString()
     };
 
@@ -494,7 +557,7 @@ async function findExistingAnalysisMetaobject(admin) {
     const response = await admin.graphql(
       `#graphql
         query findAnalysisMetaobject {
-          metaobjects(type: "ai_analysis", first: 1) {
+          metaobjects(type: "upsell_config", first: 1) {
             edges {
               node {
                 id
@@ -590,7 +653,7 @@ async function createMainAnalysisMetaobject(admin, data) {
     {
       variables: {
         metaobject: {
-          type: "ai_analysis",
+          type: "upsell_config",
           fields: fields
         }
       }
@@ -600,15 +663,15 @@ async function createMainAnalysisMetaobject(admin, data) {
   return await response.json();
 }
 
-// Create single comprehensive metaobject definition for AI analysis
+// Create single comprehensive metaobject definition for upsell configuration
 async function createMetaobjectDefinitions(admin) {
   try {
     console.log("🔧 Starting metaobject definition creation...");
     
-    // Create single AI Analysis metaobject definition
-    const aiAnalysisDef = await admin.graphql(
+    // Create single Upsell Config metaobject definition
+    const upsellConfigDef = await admin.graphql(
       `#graphql
-        mutation createAIAnalysisDefinition($definition: MetaobjectDefinitionCreateInput!) {
+        mutation createUpsellConfigDefinition($definition: MetaobjectDefinitionCreateInput!) {
           metaobjectDefinitionCreate(definition: $definition) {
             metaobjectDefinition {
               id
@@ -624,17 +687,18 @@ async function createMetaobjectDefinitions(admin) {
       {
         variables: {
           definition: {
-            name: "AI Analysis Results",
-            type: "ai_analysis",
+            name: "Upsell Configuration",
+            type: "upsell_config",
             fieldDefinitions: [
-              { key: "product_pairs", name: "Product Pairs JSON", type: "multi_line_text_field" },
+              { key: "upsell_json_data", name: "Upsell Pairs JSON", type: "multi_line_text_field" },
+              { key: "alternative_upsells", name: "Alternative Upsells JSON", type: "multi_line_text_field" },
               { key: "trending_products", name: "Trending Products JSON", type: "multi_line_text_field" },
-              { key: "cross_sell_opportunities", name: "Cross-sell Opportunities JSON", type: "multi_line_text_field" },
               { key: "total_pairs_found", name: "Total Pairs Found", type: "number_integer" },
               { key: "total_trending_products", name: "Total Trending Products", type: "number_integer" },
               { key: "confidence_threshold", name: "Confidence Threshold", type: "number_decimal" },
               { key: "analysis_date", name: "Analysis Date", type: "date_time" },
               { key: "data_period", name: "Data Period", type: "single_line_text_field" },
+              { key: "data_period_months", name: "Data Period (Months)", type: "number_integer" },
               { key: "fallback_used", name: "Fallback Used", type: "boolean" },
               { key: "last_updated", name: "Last Updated", type: "date_time" }
             ]
@@ -644,7 +708,7 @@ async function createMetaobjectDefinitions(admin) {
     );
     
     console.log("📡 GraphQL request sent, processing response...");
-    const result = await aiAnalysisDef.json();
+    const result = await upsellConfigDef.json();
     console.log("📊 GraphQL response:", JSON.stringify(result, null, 2));
 
     // Check for GraphQL errors
@@ -663,7 +727,7 @@ async function createMetaobjectDefinitions(admin) {
       return {
         success: true,
         definition: result.data.metaobjectDefinitionCreate.metaobjectDefinition,
-        message: "✅ AI Analysis metaobject definition created successfully!"
+        message: "✅ Upsell Config metaobject definition created successfully!"
       };
     }
 
@@ -680,6 +744,272 @@ async function createMetaobjectDefinitions(admin) {
       success: false,
       error: `Creation failed: ${error.message}`
     };
+  }
+}
+
+// Save configuration settings
+async function saveConfiguration(admin, formData) {
+  try {
+    console.log("💾 Saving configuration settings...");
+    
+    const config = {
+      dataPeriod: parseInt(formData.get("dataPeriod") || "1"),
+      schedule: formData.get("schedule") || "monthly",
+      aiProvider: formData.get("aiProvider") || "openai",
+      confidenceThreshold: parseFloat(formData.get("confidenceThreshold") || "0.7"),
+      maxBatches: parseInt(formData.get("maxBatches") || "20"),
+      enableNotifications: formData.get("enableNotifications") === "true"
+    };
+
+    // Find or create configuration metaobject
+    const configMetaobject = await findOrCreateConfigMetaobject(admin, config);
+    
+    return {
+      success: true,
+      message: "✅ Configuration saved successfully!",
+      config: config
+    };
+  } catch (error) {
+    console.error("❌ Error saving configuration:", error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// Load configuration settings
+async function loadConfiguration(admin) {
+  try {
+    console.log("📂 Loading configuration settings...");
+    
+    const configMetaobject = await findConfigMetaobject(admin);
+    
+    if (configMetaobject) {
+      // Parse configuration from metaobject fields
+      const config = parseConfigFromMetaobject(configMetaobject);
+      return {
+        success: true,
+        config: config
+      };
+    } else {
+      // Return default configuration
+      return {
+        success: true,
+        config: {
+          dataPeriod: 1,
+          schedule: "monthly",
+          aiProvider: "openai",
+          confidenceThreshold: 0.7,
+          maxBatches: 20,
+          enableNotifications: true
+        }
+      };
+    }
+  } catch (error) {
+    console.error("❌ Error loading configuration:", error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// Find existing configuration metaobject
+async function findConfigMetaobject(admin) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+        query findConfigMetaobject {
+          metaobjects(type: "upsell_config_settings", first: 1) {
+            edges {
+              node {
+                id
+                handle
+                type
+                fields {
+                  key
+                  value
+                }
+              }
+            }
+          }
+        }`
+    );
+
+    const responseJson = await response.json();
+    const metaobjects = responseJson.data?.metaobjects?.edges;
+    
+    if (metaobjects && metaobjects.length > 0) {
+      return metaobjects[0].node;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("❌ Error finding config metaobject:", error);
+    return null;
+  }
+}
+
+// Find or create configuration metaobject
+async function findOrCreateConfigMetaobject(admin, config) {
+  let configMetaobject = await findConfigMetaobject(admin);
+  
+  if (configMetaobject) {
+    // Update existing
+    return await updateConfigMetaobject(admin, configMetaobject.id, config);
+  } else {
+    // Create new
+    return await createConfigMetaobject(admin, config);
+  }
+}
+
+// Create configuration metaobject
+async function createConfigMetaobject(admin, config) {
+  const response = await admin.graphql(
+    `#graphql
+      mutation createConfigMetaobject($metaobject: MetaobjectCreateInput!) {
+        metaobjectCreate(metaobject: $metaobject) {
+          metaobject {
+            id
+            handle
+            fields {
+              key
+              value
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+    {
+      variables: {
+        metaobject: {
+          type: "upsell_config_settings",
+          fields: [
+            { key: "data_period", value: config.dataPeriod.toString() },
+            { key: "schedule", value: config.schedule },
+            { key: "ai_provider", value: config.aiProvider },
+            { key: "confidence_threshold", value: config.confidenceThreshold.toString() },
+            { key: "max_batches", value: config.maxBatches.toString() },
+            { key: "enable_notifications", value: config.enableNotifications.toString() },
+            { key: "last_updated", value: new Date().toISOString() }
+          ]
+        }
+      }
+    }
+  );
+
+  return await response.json();
+}
+
+// Update configuration metaobject
+async function updateConfigMetaobject(admin, metaobjectId, config) {
+  const fields = [
+    { key: "data_period", value: config.dataPeriod.toString() },
+    { key: "schedule", value: config.schedule },
+    { key: "ai_provider", value: config.aiProvider },
+    { key: "confidence_threshold", value: config.confidenceThreshold.toString() },
+    { key: "max_batches", value: config.maxBatches.toString() },
+    { key: "enable_notifications", value: config.enableNotifications.toString() },
+    { key: "last_updated", value: new Date().toISOString() }
+  ];
+
+  const response = await admin.graphql(
+    `#graphql
+      mutation updateConfigMetaobject($id: ID!, $metaobject: MetaobjectUpdateInput!) {
+        metaobjectUpdate(id: $id, metaobject: $metaobject) {
+          metaobject {
+            id
+            handle
+            fields {
+              key
+              value
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+    {
+      variables: {
+        id: metaobjectId,
+        metaobject: {
+          fields: fields
+        }
+      }
+    }
+  );
+
+  return await response.json();
+}
+
+// Parse configuration from metaobject fields
+function parseConfigFromMetaobject(metaobject) {
+  const fields = {};
+  metaobject.fields.forEach(field => {
+    fields[field.key] = field.value;
+  });
+
+  return {
+    dataPeriod: parseInt(fields.data_period || "1"),
+    schedule: fields.schedule || "monthly",
+    aiProvider: fields.ai_provider || "openai",
+    confidenceThreshold: parseFloat(fields.confidence_threshold || "0.7"),
+    maxBatches: parseInt(fields.max_batches || "20"),
+    enableNotifications: fields.enable_notifications === "true"
+  };
+}
+
+// Manage cron jobs
+async function manageCronJobs(formData) {
+  try {
+    const { cronService } = await import('../services/cronService.js');
+    const action = formData.get("cronAction");
+    
+    switch (action) {
+      case "start":
+        const config = {
+          schedule: formData.get("schedule") || "quarterly",
+          dataPeriod: parseInt(formData.get("dataPeriod") || "3"),
+          aiProvider: formData.get("aiProvider") || "openai",
+          confidenceThreshold: parseFloat(formData.get("confidenceThreshold") || "0.7"),
+          maxBatches: parseInt(formData.get("maxBatches") || "20"),
+          enableNotifications: formData.get("enableNotifications") === "true"
+        };
+        await cronService.init(config);
+        return { success: true, message: "✅ Cron jobs started successfully!" };
+        
+      case "stop":
+        cronService.stopAll();
+        return { success: true, message: "⏹️ Cron jobs stopped successfully!" };
+        
+      case "restart":
+        const restartConfig = {
+          schedule: formData.get("schedule") || "quarterly",
+          dataPeriod: parseInt(formData.get("dataPeriod") || "3"),
+          aiProvider: formData.get("aiProvider") || "openai",
+          confidenceThreshold: parseFloat(formData.get("confidenceThreshold") || "0.7"),
+          maxBatches: parseInt(formData.get("maxBatches") || "20"),
+          enableNotifications: formData.get("enableNotifications") === "true"
+        };
+        await cronService.restart(restartConfig);
+        return { success: true, message: "🔄 Cron jobs restarted successfully!" };
+        
+      case "status":
+        const status = cronService.getStatus();
+        return { success: true, status: status };
+        
+      default:
+        return { success: false, error: "Unknown cron action" };
+    }
+  } catch (error) {
+    console.error("❌ Error managing cron jobs:", error);
+    return { success: false, error: error.message };
   }
 }
 

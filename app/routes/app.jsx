@@ -23,7 +23,7 @@ export default function App() {
           Home
         </Link>
         <Link to="/app/orders">Orders Export</Link>
-        <Link to="/app/automation">AI Automation</Link>
+                  <Link to="/app/automation">Upsell Config</Link>
         <Link to="/app/additional">Additional page</Link>
       </NavMenu>
       <Outlet />

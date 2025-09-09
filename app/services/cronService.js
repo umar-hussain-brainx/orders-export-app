@@ -8,31 +8,80 @@ class CronService {
     this.isInitialized = false;
   }
 
-  // Initialize cron jobs
-  init() {
+  // Initialize cron jobs with configurable schedule
+  async init(config = null) {
     if (this.isInitialized) return;
     
     console.log('🚀 Initializing Cron Service...');
     
-    // Schedule order export and AI processing monthly
-    this.scheduleOrderExport('0 0 1 * *'); // Monthly on the 1st at midnight
+    // Load configuration if not provided
+    if (!config) {
+      try {
+        // This would load from the saved configuration
+        config = await this.loadSavedConfiguration();
+      } catch (error) {
+        console.warn('⚠️ Could not load saved config, using defaults');
+        config = { schedule: 'quarterly', dataPeriod: 3 }; // Default to quarterly with 3 months data
+      }
+    }
     
-    // Schedule monthly summary
-    this.scheduleMonthlySummary('0 2 1 * *'); // Monthly on the 1st at 2 AM
+    // Get cron pattern based on schedule
+    const cronPattern = this.getCronPattern(config.schedule || 'quarterly');
+    
+    // Schedule order export and AI processing
+    this.scheduleOrderExport(cronPattern, config);
+    
+    // Schedule summary (1 hour after main processing)
+    const summaryCronPattern = this.getCronPattern(config.schedule || 'quarterly', 1);
+    this.scheduleMonthlySummary(summaryCronPattern, config);
     
     this.isInitialized = true;
-    console.log('✅ Cron Service initialized');
+    console.log(`✅ Cron Service initialized with ${config.schedule || 'quarterly'} schedule`);
+  }
+
+  // Get cron pattern based on schedule type
+  getCronPattern(schedule, hourOffset = 0) {
+    const hour = hourOffset;
+    
+    switch (schedule) {
+      case 'weekly':
+        return `0 ${hour} * * 0`; // Every Sunday at specified hour
+      case 'monthly':
+        return `0 ${hour} 1 * *`; // 1st of every month at specified hour
+      case 'quarterly':
+        return `0 ${hour} 1 */3 *`; // 1st day of every 3rd month at specified hour
+      case 'biannually':
+        return `0 ${hour} 1 */6 *`; // 1st day of every 6th month at specified hour
+      case 'yearly':
+        return `0 ${hour} 1 1 *`; // January 1st at specified hour
+      default:
+        return `0 ${hour} 1 */3 *`; // Default to quarterly
+    }
+  }
+
+  // Load saved configuration (placeholder - would integrate with your config system)
+  async loadSavedConfiguration() {
+    // This would be implemented to load from your configuration system
+    // For now, return default quarterly configuration
+    return {
+      schedule: 'quarterly',
+      dataPeriod: 3,
+      enableNotifications: true
+    };
   }
 
   // Schedule order export and AI processing
-  scheduleOrderExport(cronPattern) {
+  scheduleOrderExport(cronPattern, config) {
     const job = cron.schedule(cronPattern, async () => {
-      console.log('📅 Running monthly order export and AI processing...');
+      console.log(`📅 Running ${config.schedule || 'quarterly'} order export and AI processing...`);
       
       try {
-        // Get orders from last 1 month
+        // Get orders from configured data period
         const endDate = new Date();
-        const startDate = new Date(endDate.getTime() - (30 * 24 * 60 * 60 * 1000)); // 1 month ago
+        const dataPeriodMonths = config.dataPeriod || 3;
+        const startDate = new Date(endDate.getTime() - (dataPeriodMonths * 30 * 24 * 60 * 60 * 1000)); // configurable months ago
+        
+        console.log(`📊 Processing ${dataPeriodMonths} months of data (${startDate.toDateString()} to ${endDate.toDateString()})`);
         
         const orders = await this.exportOrdersForPeriod(startDate, endDate);
         
@@ -62,18 +111,19 @@ class CronService {
     console.log(`⏰ Monthly order export scheduled with pattern: ${cronPattern}`);
   }
 
-  // Schedule monthly summary
-  scheduleMonthlySummary(cronPattern) {
+  // Schedule summary
+  scheduleMonthlySummary(cronPattern, config) {
     const job = cron.schedule(cronPattern, async () => {
-      console.log('📊 Running monthly summary...');
+      console.log(`📊 Running ${config.schedule || 'quarterly'} summary...`);
       
       try {
-        // Get last 1 month data
+        // Get data from configured period
         const endDate = new Date();
-        const startDate = new Date(endDate.getTime() - (30 * 24 * 60 * 60 * 1000)); // 1 month ago
+        const dataPeriodMonths = config.dataPeriod || 3;
+        const startDate = new Date(endDate.getTime() - (dataPeriodMonths * 30 * 24 * 60 * 60 * 1000)); // configurable months ago
         
         const orders = await this.exportOrdersForPeriod(startDate, endDate);
-        const summary = await this.generateMonthlySummary(orders);
+        const summary = await this.generateSummary(orders, config);
         
         // Store monthly summary
         await this.storeMonthlySummary(summary);
@@ -234,11 +284,16 @@ Format the response as valid JSON with clear categories and product IDs.
     }
   }
 
-  // Generate monthly summary
-  async generateMonthlySummary(orders) {
+  // Generate summary for configured period
+  async generateSummary(orders, config) {
+    const dataPeriodMonths = config.dataPeriod || 3;
+    const periodLabel = this.getPeriodLabel(config.schedule || 'quarterly', dataPeriodMonths);
+    
     const summary = {
       date: new Date().toISOString().split('T')[0],
-      period: "1_month",
+      period: periodLabel,
+      schedule: config.schedule || 'quarterly',
+      data_period_months: dataPeriodMonths,
       total_orders: orders.length,
       total_revenue: orders.reduce((sum, order) => sum + parseFloat(order.total_price || 0), 0),
       unique_customers: new Set(orders.map(order => order.customer_id)).size,
@@ -248,6 +303,15 @@ Format the response as valid JSON with clear categories and product IDs.
     };
 
     return summary;
+  }
+
+  // Get period label based on schedule and data period
+  getPeriodLabel(schedule, dataPeriodMonths) {
+    if (dataPeriodMonths === 1) return '1_month';
+    if (dataPeriodMonths === 3) return '3_months';
+    if (dataPeriodMonths === 6) return '6_months';
+    if (dataPeriodMonths === 12) return '1_year';
+    return `${dataPeriodMonths}_months`;
   }
 
   // Get top products from orders
@@ -280,6 +344,13 @@ Format the response as valid JSON with clear categories and product IDs.
       console.error('❌ Error storing monthly summary:', error);
       throw error;
     }
+  }
+
+  // Restart cron jobs with new configuration
+  async restart(config) {
+    console.log('🔄 Restarting cron jobs with new configuration...');
+    this.stopAll();
+    await this.init(config);
   }
 
   // Stop all cron jobs

@@ -11,6 +11,11 @@
     "config:use": "shopify app config use",
     "env": "shopify app env",
     "start": "remix-serve ./build/server/index.js",
+    "start:cron": "node start-cron.js",
+    "test:webhook": "node test-webhook.js",
+    "trigger:cron": "node external-cron-trigger.js",
+    "heroku:deploy": "./deploy-heroku.sh",
+    "heroku:logs": "heroku logs --tail",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma migrate deploy",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
@@ -39,7 +44,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "vite-tsconfig-paths": "^5.0.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "@remix-run/eslint-config": "^2.16.1",

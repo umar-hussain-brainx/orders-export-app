@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/webhooks/cron/trigger",
+      "schedule": "0 0 1 */3 *"
+    }
+  ],
+  "functions": {
+    "app/routes/webhooks.cron.trigger.jsx": {
+      "maxDuration": 300
+    }
+  }
+}

@@ -1,6 +1,6 @@
-# 🤖 Monthly AI-Powered Order Analysis & Product Pairing System
+# 🤖 Monthly AI-Powered Upsell Configuration System
 
-This Shopify app runs monthly to analyze the last 1 month of order data with AI, creating intelligent product pairs and recommendations that update a single existing Shopify metaobject.
+This Shopify app runs monthly to analyze the last 1 month of order data with AI, creating intelligent upsell configurations and recommendations that update a single existing Shopify upsell_config metaobject.
 
 ## 🚀 Features
 
@@ -48,7 +48,7 @@ scopes = "write_products,read_products,read_orders,read_all_orders,read_customer
 
 ### 4. Create Metaobject Definition
 Use the "Setup" tab in the AI Automation Dashboard to create the required metaobject type:
-- `ai_analysis`: Single metaobject that stores all AI results (updated monthly, no duplicates)
+- `upsell_config`: Single metaobject that stores all upsell configurations (updated monthly, no duplicates)
 
 ## 🎯 How It Works
 
@@ -68,7 +68,7 @@ const aiResults = await processOrdersWithAI(orders);
 
 ### 3. Update Existing Metaobject
 ```javascript
-// Updates existing metaobject instead of creating new ones
+// Updates existing upsell_config metaobject instead of creating new ones
 await updateMainAnalysisMetaobject(admin, aiResults);
 ```
 
@@ -113,14 +113,14 @@ action=createMetaobjectDefinitions
 
 ## 📊 Data Structure
 
-### AI Analysis Metaobject (Single Entry, Updated Monthly)
+### Upsell Config Metaobject (Single Entry, Updated Monthly)
 ```javascript
 {
-  type: "ai_analysis",
+  type: "upsell_config",
   fields: {
-    product_pairs: "[{\"product_1_id\":\"123\",\"product_2_id\":\"456\",\"confidence_score\":0.85}]",
+    upsell_json_data: "[{\"main_product\":\"123\",\"upsellVariants\":[{\"id\":\"456\"},{\"id\":\"789\"}]}]",
+    alternative_upsells: "[{\"main_product\":\"123\",\"upsellVariants\":[{\"id\":\"999\"}]}]",
     trending_products: "[{\"product_id\":\"789\",\"trend_score\":0.92,\"reason\":\"High frequency\"}]",
-    cross_sell_opportunities: "[{\"base_product\":\"123\",\"recommended\":\"456\"}]",
     total_pairs_found: 15,
     total_trending_products: 8,
     confidence_threshold: 0.7,

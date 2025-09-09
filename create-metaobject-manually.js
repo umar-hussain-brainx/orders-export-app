@@ -28,9 +28,10 @@ async function createMetaobjectManually() {
     const variables = {
       definition: {
         name: "AI Analysis Results",
-        type: "ai_analysis",
+        type: "upsell_config",
         fieldDefinitions: [
-          { key: "product_pairs", name: "Product Pairs JSON", type: "multi_line_text_field" },
+          { key: "upsell_json_data", name: "Product Pairs JSON", type: "multi_line_text_field" },
+          { key: "alternative_upsells", name: "Alternative Pairs JSON", type: "multi_line_text_field" },
           { key: "trending_products", name: "Trending Products JSON", type: "multi_line_text_field" },
           { key: "cross_sell_opportunities", name: "Cross-sell Opportunities JSON", type: "multi_line_text_field" },
           { key: "total_pairs_found", name: "Total Pairs Found", type: "number_integer" },

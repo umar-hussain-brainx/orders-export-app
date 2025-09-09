@@ -106,11 +106,14 @@ export default function Index() {
 
   return (
     <Page>
-      <TitleBar title="Orders Export App">
-        <Link url="/app/orders" removeUnderline>
-          <Button variant="primary">Export Orders</Button>
-        </Link>
-      </TitleBar>
+              <TitleBar title="Orders Export & Upsell Config App">
+          <Link url="/app/orders" removeUnderline>
+            <Button variant="primary">Export Orders</Button>
+          </Link>
+          <Link url="/app/automation" removeUnderline>
+            <Button>Upsell Config</Button>
+          </Link>
+        </TitleBar>
       <BlockStack gap="500">
         <Layout>
           <Layout.Section>

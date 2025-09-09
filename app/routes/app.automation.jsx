@@ -29,23 +29,7 @@ export const loader = async ({ request }) => {
   return null;
 };
 
-export const action = async ({ request }) => {
-  // This will proxy to the automation API
-  const formData = await request.formData();
-  
-  // Forward to automation API
-  const automationRequest = new Request(
-    new URL("/api/automation", request.url).toString(),
-    {
-      method: "POST",
-      body: formData,
-      headers: request.headers,
-    }
-  );
-  
-  const response = await fetch(automationRequest);
-  return await response.json();
-};
+// Removed action function - let fetcher handle API calls directly
 
 export default function AutomationDashboard() {
   const fetcher = useFetcher();
@@ -53,11 +37,12 @@ export default function AutomationDashboard() {
   const [automationStatus, setAutomationStatus] = useState("idle");
   const [lastResults, setLastResults] = useState(null);
   const [config, setConfig] = useState({
-    schedule: "hourly",
+    schedule: "quarterly",
     aiProvider: "openai",
     confidenceThreshold: 0.7,
-    maxBatches: 10,
-    enableNotifications: true
+    maxBatches: 20,
+    enableNotifications: true,
+    dataPeriod: 3 // months - default to 3 months for quarterly
   });
 
   const isLoading = fetcher.state === "submitting";
@@ -71,7 +56,10 @@ export default function AutomationDashboard() {
       formData.append(key, value.toString());
     });
     
-    fetcher.submit(formData, { method: "POST" });
+    fetcher.submit(formData, { 
+      method: "POST",
+      action: "/api/automation"  // Direct API route call
+    });
   };
 
   // Setup metaobject definitions
@@ -87,22 +75,44 @@ export default function AutomationDashboard() {
   // Run manual processing
   const runManualProcessing = () => {
     const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - (30 * 24 * 60 * 60 * 1000)); // 1 month ago
+    const startDate = new Date(endDate.getTime() - (config.dataPeriod * 30 * 24 * 60 * 60 * 1000)); // configurable months ago
     
     handleAction("processOrders", {
       startDate: startDate.toISOString(),
-      endDate: endDate.toISOString()
+      endDate: endDate.toISOString(),
+      dataPeriod: config.dataPeriod
     });
   };
 
+  // Load configuration on component mount
+  useEffect(() => {
+    loadConfiguration();
+  }, []);
+
   useEffect(() => {
     if (fetcher.data?.success) {
-      setLastResults(fetcher.data);
-      setAutomationStatus("completed");
+      if (fetcher.data.config) {
+        // Configuration loaded
+        setConfig(fetcher.data.config);
+      } else {
+        // Processing completed
+        setLastResults(fetcher.data);
+        setAutomationStatus("completed");
+      }
     } else if (fetcher.data?.success === false) {
       setAutomationStatus("error");
     }
   }, [fetcher.data]);
+
+  // Load saved configuration
+  const loadConfiguration = () => {
+    handleAction("loadConfiguration");
+  };
+
+  // Save configuration
+  const saveConfiguration = () => {
+    handleAction("saveConfiguration", config);
+  };
 
   const tabs = [
     {
@@ -128,8 +138,11 @@ export default function AutomationDashboard() {
   ];
 
   const scheduleOptions = [
-    { label: "Monthly (Recommended)", value: "monthly" },
+    { label: "Monthly", value: "monthly" },
+    { label: "Quarterly (3 months) - Recommended", value: "quarterly" },
+    { label: "Biannually (6 months)", value: "biannually" },
     { label: "Weekly", value: "weekly" },
+    { label: "Yearly", value: "yearly" },
     { label: "Manual Only", value: "manual" }
   ];
 
@@ -140,17 +153,25 @@ export default function AutomationDashboard() {
     { label: "Rule-based (No AI)", value: "rules" }
   ];
 
+  const dataPeriodOptions = [
+    { label: "1 Month", value: 1 },
+    { label: "3 Months", value: 3 },
+    { label: "6 Months", value: 6 },
+    { label: "1 Year", value: 12 }
+  ];
+
   return (
     <Page>
-      <TitleBar title="AI Automation Dashboard" />
+      <TitleBar title="Upsell Configuration Dashboard" />
       <BlockStack gap="500">
         <Banner 
           status="info" 
-          title="Monthly AI Analysis - 1 Month Data Processing"
+          title="Configurable Upsell Configuration System"
         >
           <p>
-            This system runs monthly to analyze the last 1 month of order data with AI, creating product pairs and 
-            recommendations that update your existing metaobject entry. No duplicate entries are created.
+            This system analyzes your order data with AI to create upsell configurations and recommendations. 
+            You can configure the data analysis period (1-12 months) and the system will update your existing upsell_config metaobject. 
+            No duplicate entries are created.
           </p>
         </Banner>
 
@@ -281,6 +302,16 @@ export default function AutomationDashboard() {
                       <InlineStack gap="300" align="start">
                         <div style={{ minWidth: "200px" }}>
                           <Select
+                            label="Data Analysis Period"
+                            options={dataPeriodOptions}
+                            value={config.dataPeriod}
+                            onChange={(value) => setConfig(prev => ({ ...prev, dataPeriod: parseInt(value) }))}
+                            helpText="How many months of order data to analyze"
+                          />
+                        </div>
+
+                        <div style={{ minWidth: "200px" }}>
+                          <Select
                             label="Processing Schedule"
                             options={scheduleOptions}
                             value={config.schedule}
@@ -325,7 +356,18 @@ export default function AutomationDashboard() {
                         />
                       </InlineStack>
 
-                      <Button primary>Save Configuration</Button>
+                      <InlineStack gap="300">
+                        <Button 
+                          variant="primary" 
+                          onClick={saveConfiguration}
+                          loading={isLoading}
+                        >
+                          Save Configuration
+                        </Button>
+                        <Button onClick={loadConfiguration}>
+                          Reset to Saved
+                        </Button>
+                      </InlineStack>
                     </BlockStack>
                   </BlockStack>
                 </Card>
@@ -457,7 +499,9 @@ AUTOMATION_ENABLED=true`}
                       Results are automatically stored in a single metaobject:
                     </Text>
                     <List>
-                      <List.Item><strong>ai_analysis:</strong> Contains all AI results (product pairs, trending products, analysis summary)</List.Item>
+                      <List.Item><strong>upsell_config:</strong> Contains all upsell configurations with your custom fields</List.Item>
+                      <List.Item><strong>upsell_json_data:</strong> Main upsell product pairs in your JSON format</List.Item>
+                      <List.Item><strong>alternative_upsells:</strong> Alternative recommendation options</List.Item>
                       <List.Item><strong>Updates monthly:</strong> Same entry is updated, no duplicates created</List.Item>
                       <List.Item><strong>1-month data:</strong> Analysis based on last 1 month of orders</List.Item>
                     </List>
@@ -493,12 +537,12 @@ AUTOMATION_ENABLED=true`}
                       </Banner>
 
                       <BlockStack gap="300">
-                        <Text as="h3" variant="headingMd">1. Create AI Analysis Metaobject</Text>
+                        <Text as="h3" variant="headingMd">1. Create Upsell Config Metaobject</Text>
                         <Text variant="bodyMd" as="p">
-                          Create a single metaobject type called "ai_analysis" to store all AI results. This will be updated monthly with new data.
+                          Create a single metaobject type called "upsell_config" to store all upsell configurations. This will be updated monthly with new data.
                         </Text>
                         <Button onClick={setupMetaobjects} loading={isLoading}>
-                          Create AI Analysis Metaobject
+                          Create Upsell Config Metaobject
                         </Button>
                       </BlockStack>
 
