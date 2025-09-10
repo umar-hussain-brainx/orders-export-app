@@ -1,15 +1,15 @@
-# 🤖 Monthly AI-Powered Upsell Configuration System
+# 🤖 Quarterly AI-Powered Upsell Configuration System (Heroku)
 
-This Shopify app runs monthly to analyze the last 1 month of order data with AI, creating intelligent upsell configurations and recommendations that update a single existing Shopify upsell_config metaobject.
+This Shopify app runs quarterly on Heroku to analyze configurable periods of order data with AI, creating intelligent upsell configurations and recommendations that update a single existing Shopify upsell_config metaobject.
 
 ## 🚀 Features
 
 ### Core Functionality
-- **Monthly Processing**: Automatically processes last 1 month of order data
+- **Quarterly Processing**: Automatically processes configurable periods of order data (1, 3, 6, or 12 months)
 - **AI Analysis**: Uses OpenAI/Claude to analyze purchase patterns and create product pairs
 - **Smart Recommendations**: Generates frequently-bought-together pairs and trending products
 - **Single Metaobject Update**: Updates existing metaobject instead of creating duplicates
-- **Monthly Scheduling**: Runs once per month with comprehensive 1-month analysis
+- **Heroku Deployment**: Runs on Heroku with GitHub Actions triggering quarterly processing
 
 ### AI Capabilities
 - **Product Pair Detection**: Identifies products frequently bought together
@@ -230,10 +230,48 @@ ENABLE_AUTOMATION_LOGS=true
 2. Perfect for historical analysis or catching up missed periods
 3. Supports up to 5000 orders per run (20 batches)
 
+## 🚀 Heroku Deployment
+
+### Quick Setup
+```bash
+# Run the automated deployment script
+./deploy-heroku.sh
+
+# Or deploy manually
+heroku create your-orders-export-app
+heroku addons:create heroku-postgresql:mini
+git push heroku main
+```
+
+### GitHub Actions Setup
+1. Go to your GitHub repo → Settings → Secrets and Variables → Actions
+2. Add these secrets:
+   - `APP_URL`: `https://your-orders-export-app.herokuapp.com`
+   - `WEBHOOK_SECRET`: Your secure random token
+   - `SHOPIFY_SHOP_DOMAIN`: `your-shop.myshopify.com`
+
+### Quarterly Schedule
+- **January 1st**: Process Oct-Dec data
+- **April 1st**: Process Jan-Mar data  
+- **July 1st**: Process Apr-Jun data
+- **October 1st**: Process Jul-Sep data
+
+### Monitoring
+```bash
+# View logs
+heroku logs --tail -a your-app-name
+
+# Check app status
+heroku ps -a your-app-name
+
+# View config
+heroku config -a your-app-name
+```
+
 ## 🤝 Support
 
 For issues or questions:
 1. Check the troubleshooting section above
-2. Review console logs in the browser developer tools
+2. Review Heroku logs: `heroku logs --tail`
 3. Verify environment variables and permissions
 4. Test with manual processing first before setting up cron jobs

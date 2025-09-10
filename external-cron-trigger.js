@@ -10,10 +10,8 @@ async function triggerShopifyAppCron() {
   console.log('🚀 Triggering Shopify App Cron Job...');
   
   const config = {
-    // Your deployed app URL (update for your platform)
-    appUrl: process.env.APP_URL || 'https://your-orders-export-app.herokuapp.com', // Heroku
-    // appUrl: process.env.APP_URL || 'https://your-app.vercel.app', // Vercel
-    // appUrl: process.env.APP_URL || 'https://your-app.railway.app', // Railway
+    // Your Heroku app URL
+    appUrl: process.env.APP_URL || 'https://your-orders-export-app.herokuapp.com',
     
     // Webhook secret for authentication
     webhookSecret: process.env.WEBHOOK_SECRET || 'your-secret-token',

@@ -76,3 +76,4 @@ echo "🔗 Useful commands:"
 echo "   heroku logs --tail -a $APP_NAME"
 echo "   heroku config -a $APP_NAME"
 echo "   heroku ps -a $APP_NAME"
+

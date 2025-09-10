@@ -1,4 +1,4 @@
-name: Quarterly Order Processing
+name: Quarterly Order Processing (Heroku)
 
 # Runs every 3 months on the 1st at 00:00 UTC
 on:
@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Trigger Shopify App Cron Job
+      - name: Trigger Heroku App Webhook
         run: |
-          echo "🚀 Triggering quarterly order processing..."
+          echo "🚀 Triggering quarterly order processing on Heroku..."
           
-          # Call your app's webhook endpoint
+          # Call your Heroku app's webhook endpoint
           curl -X POST "${{ secrets.APP_URL }}/webhooks/cron/trigger" \
             -H "Authorization: Bearer ${{ secrets.WEBHOOK_SECRET }}" \
             -H "Content-Type: application/x-www-form-urlencoded" \
@@ -38,3 +38,4 @@ jobs:
         run: |
           echo "❌ Quarterly processing failed!"
           # You could add Slack/Discord notifications here
+
