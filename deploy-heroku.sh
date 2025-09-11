@@ -41,12 +41,12 @@ echo "Please provide the following environment variables:"
 
 read -p "SHOPIFY_API_KEY: " SHOPIFY_API_KEY
 read -p "SHOPIFY_API_SECRET: " SHOPIFY_API_SECRET
-read -p "WEBHOOK_SECRET (generate a random token): " WEBHOOK_SECRET
+read -p "SHOPIFY_SHOP_DOMAIN (e.g., your-shop.myshopify.com): " SHOPIFY_SHOP_DOMAIN
 read -p "OPENAI_API_KEY: " OPENAI_API_KEY
 
 heroku config:set SHOPIFY_API_KEY="$SHOPIFY_API_KEY" -a $APP_NAME
 heroku config:set SHOPIFY_API_SECRET="$SHOPIFY_API_SECRET" -a $APP_NAME
-heroku config:set WEBHOOK_SECRET="$WEBHOOK_SECRET" -a $APP_NAME
+heroku config:set SHOPIFY_SHOP_DOMAIN="$SHOPIFY_SHOP_DOMAIN" -a $APP_NAME
 heroku config:set OPENAI_API_KEY="$OPENAI_API_KEY" -a $APP_NAME
 
 # Deploy the app
@@ -63,13 +63,13 @@ heroku open -a $APP_NAME
 # Show next steps
 echo ""
 echo "✅ Next Steps:"
-echo "1. Go to GitHub repo → Settings → Secrets and Variables → Actions"
-echo "2. Add these secrets:"
-echo "   - APP_URL: https://$APP_NAME.herokuapp.com"
-echo "   - WEBHOOK_SECRET: $WEBHOOK_SECRET"
-echo "   - SHOPIFY_SHOP_DOMAIN: your-shop.myshopify.com"
-echo "3. Test with: npm run trigger:cron"
-echo "4. Your quarterly cron job will run automatically via GitHub Actions!"
+echo "1. Add Heroku Scheduler:"
+echo "   heroku addons:create scheduler:standard -a $APP_NAME"
+echo "2. Configure quarterly job in Heroku Dashboard:"
+echo "   - Command: curl -X POST https://$APP_NAME.herokuapp.com/scheduler/process"
+echo "   - Schedule: Every 3 months (0 0 1 */3 *)"
+echo "3. Test with: curl -X POST https://$APP_NAME.herokuapp.com/scheduler/process"
+echo "4. Your quarterly processing will run automatically via Heroku Scheduler!"
 
 echo ""
 echo "🔗 Useful commands:"

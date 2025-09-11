@@ -17,21 +17,25 @@ heroku config:set OPENAI_API_KEY=your_openai_key
 git push heroku main
 ```
 
-### 2. Set GitHub Secrets
-Go to GitHub repo → Settings → Secrets and Variables → Actions
-
-Add:
-- `APP_URL`: `https://your-orders-export-app.herokuapp.com`
-- `WEBHOOK_SECRET`: Your secure random token
-- `SHOPIFY_SHOP_DOMAIN`: `your-shop.myshopify.com`
-
-### 3. Test Your Setup
+### 2. Add Heroku Scheduler
 ```bash
-# Test webhook
-npm run test:webhook
+# Add Heroku Scheduler add-on
+heroku addons:create scheduler:standard -a your-app-name
 
-# Trigger manually
-npm run trigger:cron
+# Open scheduler dashboard
+heroku addons:open scheduler -a your-app-name
+```
+
+### 3. Configure Quarterly Job
+1. In Heroku Dashboard → Resources → Heroku Scheduler
+2. Click "Create job"
+3. Set command: `curl -X POST https://your-app-name.herokuapp.com/scheduler/process`
+4. Set schedule: Every 3 months (or cron: `0 0 1 */3 *`)
+
+### 4. Test Your Setup
+```bash
+# Test scheduler endpoint
+curl -X POST https://your-app-name.herokuapp.com/scheduler/process
 
 # View logs
 npm run logs:heroku
@@ -39,7 +43,7 @@ npm run logs:heroku
 
 ## 📅 Quarterly Schedule
 
-GitHub Actions automatically triggers your Heroku app:
+Heroku Scheduler automatically triggers your app:
 - **January 1st** → Process Oct-Dec data
 - **April 1st** → Process Jan-Mar data  
 - **July 1st** → Process Apr-Jun data
@@ -47,26 +51,25 @@ GitHub Actions automatically triggers your Heroku app:
 
 ## 💰 Cost
 
-**Eco Dynos ($5/month)**
-- Perfect for quarterly processing
-- Sleeps when not in use
-- Wakes instantly when triggered
+**Standard Dynos ($25/month)**
+- Required for Heroku Scheduler
+- Never sleeps
+- Reliable quarterly processing
 
 ## 📁 Heroku-Specific Files
 
 - ✅ `Procfile` - Heroku startup configuration
 - ✅ `deploy-heroku.sh` - Automated deployment script
 - ✅ `HEROKU_SETUP.md` - Detailed setup guide
-- ✅ `.github/workflows/quarterly-cron.yml` - GitHub Actions cron
-- ✅ `external-cron-trigger.js` - Manual trigger script
+- ✅ `app/routes/scheduler.process.jsx` - Heroku Scheduler endpoint
 
 ## 🎯 What Happens Quarterly
 
-1. **GitHub Actions** runs on schedule
-2. **Calls Heroku webhook** to wake up your app
-3. **Heroku processes** configurable months of order data
+1. **Heroku Scheduler** runs on schedule
+2. **Calls /scheduler/process** endpoint
+3. **Heroku processes** 3 months of order data
 4. **AI analyzes** purchase patterns
 5. **Updates metaobject** with upsell recommendations
-6. **App goes back to sleep** until next quarter
+6. **Process completes** until next quarter
 
 **Your quarterly upsell automation is ready! 🎉**

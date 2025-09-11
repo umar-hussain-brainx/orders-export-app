@@ -4,12 +4,12 @@
 - ✅ **Well-established platform**
 - ✅ **Great for Shopify apps**
 - ✅ **Excellent documentation**
-- ✅ **Many add-ons available**
+- ✅ **Built-in Heroku Scheduler**
 - ✅ **Easy scaling**
 
-## 🎯 Heroku + GitHub Actions Strategy
+## 🎯 Heroku Scheduler Strategy
 
-Since Heroku doesn't have built-in cron jobs in the free tier, we'll use **GitHub Actions** to trigger your quarterly processing. This is actually **more reliable** than Heroku's scheduler!
+Your app uses **Heroku Scheduler** to run quarterly processing. Simple, reliable, and built into Heroku!
 
 ## 🔧 Step-by-Step Setup
 
@@ -42,7 +42,7 @@ heroku create your-orders-export-app --region us
 # Set all required environment variables
 heroku config:set SHOPIFY_API_KEY=your_shopify_api_key
 heroku config:set SHOPIFY_API_SECRET=your_shopify_api_secret
-heroku config:set WEBHOOK_SECRET=your_secure_random_token
+heroku config:set SHOPIFY_SHOP_DOMAIN=your-shop.myshopify.com
 heroku config:set OPENAI_API_KEY=your_openai_api_key
 
 # Heroku will provide DATABASE_URL automatically when you add Postgres
@@ -76,36 +76,41 @@ heroku open
 heroku logs --tail
 ```
 
-## ⏰ Cron Job Setup (GitHub Actions)
+## ⏰ Heroku Scheduler Setup
 
-### Your GitHub Actions workflow is already configured! Here's how it works:
+### Add Heroku Scheduler:
+```bash
+# Add Heroku Scheduler add-on
+heroku addons:create scheduler:standard -a your-app-name
+```
 
-1. **GitHub Actions runs quarterly** (every 3 months)
-2. **Calls your Heroku app's webhook**
-3. **Your app processes orders and updates metaobjects**
+### Configure Quarterly Job:
+1. **Open Heroku Dashboard** → Your App → Resources → Heroku Scheduler
+2. **Click "Create job"**
+3. **Set schedule**: Every 3 months (or use cron: `0 0 1 */3 *`)
+4. **Set command**: `curl -X POST https://your-app-name.herokuapp.com/scheduler/process`
+5. **Save the job**
 
-### Set GitHub Secrets:
-Go to your GitHub repo → Settings → Secrets and variables → Actions
-
-Add these secrets:
-- `APP_URL`: `https://your-orders-export-app.herokuapp.com`
-- `WEBHOOK_SECRET`: `your_secure_random_token` (same as Heroku config)
-- `SHOPIFY_SHOP_DOMAIN`: `your-shop.myshopify.com`
+### Alternative: Use Heroku CLI
+```bash
+# Create quarterly job via CLI
+heroku addons:open scheduler -a your-app-name
+```
 
 ## 🧪 Testing Your Setup
 
-### Test Locally First:
+### Test the Scheduler Endpoint:
 ```bash
-# Test webhook locally
-WEBHOOK_SECRET=your_token SHOPIFY_SHOP_DOMAIN=your-shop.myshopify.com npm run test:webhook
+# Test the endpoint directly
+curl -X POST https://your-app-name.herokuapp.com/scheduler/process
+
+# Or test GET for info
+curl https://your-app-name.herokuapp.com/scheduler/process
 ```
 
-### Test Production:
-```bash
-# Update external-cron-trigger.js with your Heroku URL
-# Then test:
-APP_URL=https://your-orders-export-app.herokuapp.com npm run trigger:cron
-```
+### Test via Heroku Dashboard:
+1. Go to Heroku Dashboard → Your App → Resources → Heroku Scheduler
+2. Find your job and click "Run now" to test
 
 ## 📊 Heroku-Specific Configuration
 
@@ -194,7 +199,7 @@ heroku ps:restart
 
 ```mermaid
 graph TD
-    A[GitHub Actions - Every 3 Months] --> B[POST to Heroku App]
+    A[Heroku Scheduler - Every 3 Months] --> B[POST to /scheduler/process]
     B --> C[Heroku Dyno Wakes Up]
     C --> D[Load Configuration from Metaobject]
     D --> E[Fetch 3 Months of Orders]
@@ -202,7 +207,7 @@ graph TD
     F --> G[Update Metaobject]
     G --> H[Heroku Dyno Sleeps]
     
-    style A fill:#10b981
+    style A fill:#6f42c1
     style C fill:#3b82f6
     style G fill:#f59e0b
 ```
@@ -230,12 +235,13 @@ heroku config:get DATABASE_URL
 heroku pg:reset DATABASE_URL --confirm your-app-name
 ```
 
-#### Webhook Not Working:
+#### Scheduler Not Working:
 ```bash
-# Test webhook endpoint
-curl -X POST "https://your-app.herokuapp.com/webhooks/cron/trigger" \
-  -H "Authorization: Bearer your-webhook-secret" \
-  -d "shop=your-shop.myshopify.com"
+# Test scheduler endpoint
+curl -X POST "https://your-app.herokuapp.com/scheduler/process"
+
+# Check scheduler logs
+heroku logs --tail -a your-app-name
 ```
 
 ## 🎉 Advantages of Heroku for Your App
@@ -243,14 +249,15 @@ curl -X POST "https://your-app.herokuapp.com/webhooks/cron/trigger" \
 ### ✅ Pros:
 - **Reliable platform** with excellent uptime
 - **Easy deployment** with Git-based workflow
+- **Built-in Heroku Scheduler** - no external dependencies
 - **Great add-ons ecosystem** (Postgres, Redis, etc.)
 - **Excellent logging** and monitoring
 - **Easy scaling** when you grow
 
 ### ❌ Cons:
 - **No free tier** anymore
-- **Dyno sleeping** on Eco tier (but GitHub Actions wakes it up)
-- **More expensive** than some alternatives
+- **Dyno sleeping** on Eco tier (but Scheduler wakes it up)
+- **Scheduler costs extra** ($25/month for Standard dynos minimum)
 
 ## 📅 Your Quarterly Schedule
 
@@ -263,9 +270,10 @@ Once deployed, your system will run:
 ## 🎯 Next Steps
 
 1. **Deploy to Heroku** using the commands above
-2. **Set GitHub Secrets** with your Heroku app URL
-3. **Test the webhook** to ensure everything works
-4. **Wait for quarterly processing** or trigger manually
+2. **Add Heroku Scheduler** add-on
+3. **Configure quarterly job** in Heroku Dashboard
+4. **Test the scheduler** to ensure everything works
+5. **Wait for quarterly processing** or trigger manually
 
-**Your Heroku app will be perfect for quarterly order processing!** 🚀
+**Your Heroku app with Scheduler is ready for quarterly order processing!** 🚀
 
