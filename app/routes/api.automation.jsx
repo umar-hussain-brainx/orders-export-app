@@ -22,33 +22,15 @@ export const action = async ({ request }) => {
         console.log("💾 Saving configuration...");
         const saveResult = await saveConfiguration(admin, formData);
         
-        // Restart cron jobs with new configuration if save was successful
-        if (saveResult.success) {
-          try {
-            const { cronService } = await import('../services/cronService.js');
-            const config = {
-              schedule: formData.get("schedule") || "quarterly",
-              dataPeriod: parseInt(formData.get("dataPeriod") || "3"),
-              aiProvider: formData.get("aiProvider") || "openai",
-              confidenceThreshold: parseFloat(formData.get("confidenceThreshold") || "0.7"),
-              maxBatches: parseInt(formData.get("maxBatches") || "20"),
-              enableNotifications: formData.get("enableNotifications") === "true"
-            };
-            await cronService.restart(config);
-            saveResult.message += " Cron jobs updated!";
-          } catch (cronError) {
-            console.error("❌ Error updating cron jobs:", cronError);
-            saveResult.message += " (Cron update failed)";
-          }
-        }
+        // Configuration saved successfully (no cron jobs to restart with Heroku Scheduler)
         
         return saveResult;
       case "loadConfiguration":
         console.log("📂 Loading configuration...");
         return await loadConfiguration(admin);
       case "manageCronJobs":
-        console.log("⏰ Managing cron jobs...");
-        return await manageCronJobs(formData);
+        console.log("⏰ Cron jobs not needed with Heroku Scheduler");
+        return { success: true, message: "Using Heroku Scheduler instead of local cron jobs" };
       case "testAIIntegration":
         console.log("🤖 Testing AI integration...");
         return await testAIIntegration(formData);
@@ -966,52 +948,7 @@ function parseConfigFromMetaobject(metaobject) {
 }
 
 // Manage cron jobs
-async function manageCronJobs(formData) {
-  try {
-    const { cronService } = await import('../services/cronService.js');
-    const action = formData.get("cronAction");
-    
-    switch (action) {
-      case "start":
-        const config = {
-          schedule: formData.get("schedule") || "quarterly",
-          dataPeriod: parseInt(formData.get("dataPeriod") || "3"),
-          aiProvider: formData.get("aiProvider") || "openai",
-          confidenceThreshold: parseFloat(formData.get("confidenceThreshold") || "0.7"),
-          maxBatches: parseInt(formData.get("maxBatches") || "20"),
-          enableNotifications: formData.get("enableNotifications") === "true"
-        };
-        await cronService.init(config);
-        return { success: true, message: "✅ Cron jobs started successfully!" };
-        
-      case "stop":
-        cronService.stopAll();
-        return { success: true, message: "⏹️ Cron jobs stopped successfully!" };
-        
-      case "restart":
-        const restartConfig = {
-          schedule: formData.get("schedule") || "quarterly",
-          dataPeriod: parseInt(formData.get("dataPeriod") || "3"),
-          aiProvider: formData.get("aiProvider") || "openai",
-          confidenceThreshold: parseFloat(formData.get("confidenceThreshold") || "0.7"),
-          maxBatches: parseInt(formData.get("maxBatches") || "20"),
-          enableNotifications: formData.get("enableNotifications") === "true"
-        };
-        await cronService.restart(restartConfig);
-        return { success: true, message: "🔄 Cron jobs restarted successfully!" };
-        
-      case "status":
-        const status = cronService.getStatus();
-        return { success: true, status: status };
-        
-      default:
-        return { success: false, error: "Unknown cron action" };
-    }
-  } catch (error) {
-    console.error("❌ Error managing cron jobs:", error);
-    return { success: false, error: error.message };
-  }
-}
+// Cron jobs are handled by Heroku Scheduler - no local management needed
 
 // Test AI integration
 async function testAIIntegration(formData) {
