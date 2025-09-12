@@ -8,9 +8,18 @@ export async function action({ request }) {
   
   try {
     // Get shop domain from request body or query params (for multi-store support)
-    const formData = await request.formData();
     const url = new URL(request.url);
-    const shopDomain = formData.get("shop") || url.searchParams.get("shop") || process.env.SHOPIFY_SHOP_DOMAIN;
+    let shopDomain = url.searchParams.get("shop") || process.env.SHOPIFY_SHOP_DOMAIN;
+    
+    // Try to get from form data if it's a POST with body
+    if (request.method === "POST" && request.headers.get("content-type")?.includes("form")) {
+      try {
+        const formData = await request.formData();
+        shopDomain = formData.get("shop") || shopDomain;
+      } catch (e) {
+        // Ignore form data parsing errors, use query params instead
+      }
+    }
     
     if (!shopDomain) {
       console.error("❌ Shop domain not provided in request or environment");
@@ -22,8 +31,15 @@ export async function action({ request }) {
 
     console.log(`📍 Processing for shop: ${shopDomain}`);
 
+    // Check for test mode (bypass quarterly checks)
+    const testMode = url.searchParams.get("test") === "true";
+    
+    if (testMode) {
+      console.log("🧪 TEST MODE: Bypassing quarterly checks");
+    }
+
     // Check if quarterly processing is due for this shop
-    const shouldProcess = await isQuarterlyProcessingDue(shopDomain);
+    const shouldProcess = testMode ? { due: true, message: "Test mode enabled" } : await isQuarterlyProcessingDue(shopDomain);
     
     if (!shouldProcess.due) {
       console.log(`⏭️ Quarterly processing not due yet for ${shopDomain}. ${shouldProcess.message}`);
