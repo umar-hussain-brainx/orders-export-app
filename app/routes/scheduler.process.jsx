@@ -45,14 +45,14 @@ export async function action({ request }) {
     const { processOrdersAutomatically } = await import("./api.automation");
     
     // Create form data with default quarterly settings
-    const formData = new FormData();
-    formData.append("action", "processOrders");
-    formData.append("dataPeriod", "3"); // 3 months for quarterly
+    const processingFormData = new FormData();
+    processingFormData.append("action", "processOrders");
+    processingFormData.append("dataPeriod", "3"); // 3 months for quarterly
     
     console.log("📊 Processing last 3 months of orders...");
     
     // Process orders
-    const result = await processOrdersAutomatically(admin, formData);
+    const result = await processOrdersAutomatically(admin, processingFormData);
     
     // Update last processing date for this shop
     await updateLastProcessingDate(shopDomain);
