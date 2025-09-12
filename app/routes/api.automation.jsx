@@ -650,7 +650,9 @@ async function createMetaobjectDefinitions(admin) {
   try {
     console.log("🔧 Starting metaobject definition creation...");
     
-    // Create single Upsell Config metaobject definition
+    const results = [];
+    
+    // Create Upsell Config metaobject definition (for storing upsell data)
     const upsellConfigDef = await admin.graphql(
       `#graphql
         mutation createUpsellConfigDefinition($definition: MetaobjectDefinitionCreateInput!) {
@@ -705,19 +707,87 @@ async function createMetaobjectDefinitions(admin) {
 
     // Check if metaobject was created successfully
     if (result.data?.metaobjectDefinitionCreate?.metaobjectDefinition) {
-      console.log("✅ Metaobject definition created successfully!");
-      return {
-        success: true,
-        definition: result.data.metaobjectDefinitionCreate.metaobjectDefinition,
-        message: "✅ Upsell Config metaobject definition created successfully!"
-      };
+      console.log("✅ Upsell Config metaobject definition created successfully!");
+      results.push({
+        type: "upsell_config",
+        definition: result.data.metaobjectDefinitionCreate.metaobjectDefinition
+      });
+    } else {
+      console.error("⚠️ Unexpected response structure for upsell_config:", result);
+      results.push({
+        type: "upsell_config",
+        error: "Unexpected response from Shopify API"
+      });
     }
 
-    // If we get here, something unexpected happened
-    console.error("⚠️ Unexpected response structure:", result);
+    // Create Upsell Config Settings metaobject definition (for storing app configuration)
+    const configSettingsDef = await admin.graphql(
+      `#graphql
+        mutation createConfigSettingsDefinition($definition: MetaobjectDefinitionCreateInput!) {
+          metaobjectDefinitionCreate(definition: $definition) {
+            metaobjectDefinition {
+              id
+              name
+              type
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+      {
+        variables: {
+          definition: {
+            name: "Upsell Configuration Settings",
+            type: "upsell_config_settings",
+            fieldDefinitions: [
+              { key: "data_period", name: "Data Period (Months)", type: "number_integer" },
+              { key: "schedule", name: "Processing Schedule", type: "single_line_text_field" },
+              { key: "ai_provider", name: "AI Provider", type: "single_line_text_field" },
+              { key: "confidence_threshold", name: "Confidence Threshold", type: "number_decimal" },
+              { key: "max_batches", name: "Max Batches", type: "number_integer" },
+              { key: "enable_notifications", name: "Enable Notifications", type: "boolean" },
+              { key: "last_updated", name: "Last Updated", type: "date_time" }
+            ]
+          }
+        }
+      }
+    );
+
+    const configResult = await configSettingsDef.json();
+    console.log("📊 Config Settings GraphQL response:", JSON.stringify(configResult, null, 2));
+
+    // Check for GraphQL errors
+    if (configResult.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
+      const errors = configResult.data.metaobjectDefinitionCreate.userErrors;
+      console.error("❌ Config Settings GraphQL user errors:", errors);
+      results.push({
+        type: "upsell_config_settings",
+        error: `GraphQL errors: ${errors.map(e => e.message).join(', ')}`
+      });
+    } else if (configResult.data?.metaobjectDefinitionCreate?.metaobjectDefinition) {
+      console.log("✅ Config Settings metaobject definition created successfully!");
+      results.push({
+        type: "upsell_config_settings",
+        definition: configResult.data.metaobjectDefinitionCreate.metaobjectDefinition
+      });
+    } else {
+      console.error("⚠️ Unexpected response structure for config settings:", configResult);
+      results.push({
+        type: "upsell_config_settings",
+        error: "Unexpected response from Shopify API"
+      });
+    }
+
+    // Return summary of all results
+    const successCount = results.filter(r => r.definition).length;
+    const errorCount = results.filter(r => r.error).length;
+    
     return {
-      success: false,
-      error: "Unexpected response from Shopify API"
+      success: successCount > 0,
+      results: results,
+      message: `✅ Created ${successCount} metaobject definitions successfully! ${errorCount > 0 ? `(${errorCount} errors)` : ''}`
     };
 
   } catch (error) {
