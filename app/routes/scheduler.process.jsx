@@ -102,7 +102,7 @@ async function isQuarterlyProcessingDue(shopDomain) {
     const currentYear = now.getFullYear();
     
     // Quarterly months: January (0), April (3), July (6), October (9)
-    const quarterlyMonths = [0, 3, 6, 9];
+    const quarterlyMonths = [0, 3, 6, 9, 8];
     const isQuarterlyMonth = quarterlyMonths.includes(currentMonth);
     
     if (!isQuarterlyMonth) {
