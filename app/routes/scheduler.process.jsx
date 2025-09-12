@@ -7,33 +7,38 @@ export async function action({ request }) {
   console.log("🚀 Heroku Scheduler triggered - checking if quarterly processing is due...");
   
   try {
-    // Get the shop from environment or request
-    const shopDomain = process.env.SHOPIFY_SHOP_DOMAIN;
+    // Get shop domain from request body or query params (for multi-store support)
+    const formData = await request.formData();
+    const url = new URL(request.url);
+    const shopDomain = formData.get("shop") || url.searchParams.get("shop") || process.env.SHOPIFY_SHOP_DOMAIN;
     
     if (!shopDomain) {
-      console.error("❌ SHOPIFY_SHOP_DOMAIN environment variable not set");
+      console.error("❌ Shop domain not provided in request or environment");
       return json({ 
         success: false, 
-        error: "Shop domain not configured" 
+        error: "Shop domain required. Pass as 'shop' parameter or set SHOPIFY_SHOP_DOMAIN env var" 
       }, { status: 400 });
     }
 
-    // Check if quarterly processing is due
-    const shouldProcess = await isQuarterlyProcessingDue();
+    console.log(`📍 Processing for shop: ${shopDomain}`);
+
+    // Check if quarterly processing is due for this shop
+    const shouldProcess = await isQuarterlyProcessingDue(shopDomain);
     
     if (!shouldProcess.due) {
-      console.log(`⏭️ Quarterly processing not due yet. ${shouldProcess.message}`);
+      console.log(`⏭️ Quarterly processing not due yet for ${shopDomain}. ${shouldProcess.message}`);
       return json({
         success: true,
+        shop: shopDomain,
         message: shouldProcess.message,
         nextProcessingDate: shouldProcess.nextDate,
         skipped: true
       });
     }
 
-    console.log("✅ Quarterly processing is due! Starting processing...");
+    console.log(`✅ Quarterly processing is due for ${shopDomain}! Starting processing...`);
 
-    // Authenticate with Shopify
+    // Authenticate with Shopify (this will work for any shop that has the app installed)
     const { admin } = await authenticate.admin(request);
     
     // Import the processing function from api.automation
@@ -49,14 +54,15 @@ export async function action({ request }) {
     // Process orders
     const result = await processOrdersAutomatically(admin, formData);
     
-    // Update last processing date
-    await updateLastProcessingDate();
+    // Update last processing date for this shop
+    await updateLastProcessingDate(shopDomain);
     
-    console.log("✅ Quarterly processing completed successfully");
+    console.log(`✅ Quarterly processing completed successfully for ${shopDomain}`);
     
     return json({
       success: true,
-      message: "Quarterly processing completed",
+      shop: shopDomain,
+      message: `Quarterly processing completed for ${shopDomain}`,
       result: result,
       processedAt: new Date().toISOString()
     });
@@ -72,8 +78,8 @@ export async function action({ request }) {
   }
 }
 
-// Check if quarterly processing is due (every 3 months)
-async function isQuarterlyProcessingDue() {
+// Check if quarterly processing is due (every 3 months) for a specific shop
+async function isQuarterlyProcessingDue(shopDomain) {
   try {
     const now = new Date();
     const currentMonth = now.getMonth(); // 0-11
@@ -109,8 +115,8 @@ async function isQuarterlyProcessingDue() {
       };
     }
     
-    // Check if we already processed this quarter
-    const lastProcessed = await getLastProcessingDate();
+    // Check if we already processed this quarter for this shop
+    const lastProcessed = await getLastProcessingDate(shopDomain);
     if (lastProcessed) {
       const lastProcessedDate = new Date(lastProcessed);
       const lastProcessedMonth = lastProcessedDate.getMonth();
@@ -123,7 +129,7 @@ async function isQuarterlyProcessingDue() {
         
         return {
           due: false,
-          message: `Already processed this quarter (${getMonthName(currentMonth)} ${currentYear}). Next: ${getMonthName(nextQuarterlyMonth)} ${nextYear}`,
+          message: `Already processed this quarter (${getMonthName(currentMonth)} ${currentYear}) for ${shopDomain}. Next: ${getMonthName(nextQuarterlyMonth)} ${nextYear}`,
           nextDate: nextDate.toISOString()
         };
       }
@@ -131,12 +137,12 @@ async function isQuarterlyProcessingDue() {
     
     return {
       due: true,
-      message: `Quarterly processing due for ${getMonthName(currentMonth)} ${currentYear}`,
+      message: `Quarterly processing due for ${shopDomain} - ${getMonthName(currentMonth)} ${currentYear}`,
       currentQuarter: getMonthName(currentMonth)
     };
     
   } catch (error) {
-    console.error("❌ Error checking quarterly processing due:", error);
+    console.error(`❌ Error checking quarterly processing due for ${shopDomain}:`, error);
     return {
       due: false,
       message: `Error checking schedule: ${error.message}`
@@ -144,28 +150,32 @@ async function isQuarterlyProcessingDue() {
   }
 }
 
-// Get last processing date from environment or file
-async function getLastProcessingDate() {
+// Get last processing date for a specific shop
+async function getLastProcessingDate(shopDomain) {
   try {
-    // In production, we'll store this in an environment variable or simple file
-    // For now, return null to allow first run
-    return process.env.LAST_QUARTERLY_PROCESSING || null;
+    // Store per-shop processing dates using environment variables
+    // Format: LAST_PROCESSING_SHOP_DOMAIN (replace dots and dashes with underscores)
+    const envKey = `LAST_PROCESSING_${shopDomain.replace(/[.-]/g, '_').toUpperCase()}`;
+    return process.env[envKey] || null;
   } catch (error) {
-    console.error("❌ Error getting last processing date:", error);
+    console.error(`❌ Error getting last processing date for ${shopDomain}:`, error);
     return null;
   }
 }
 
-// Update last processing date
-async function updateLastProcessingDate() {
+// Update last processing date for a specific shop
+async function updateLastProcessingDate(shopDomain) {
   try {
     const now = new Date().toISOString();
-    console.log(`📅 Updated last processing date to: ${now}`);
-    // In a real implementation, you'd store this in a database or persistent storage
-    // For Heroku, we can use config vars
+    console.log(`📅 Updated last processing date for ${shopDomain} to: ${now}`);
+    
+    // In a real implementation, you'd store this in a database
+    // For now, we'll just log it (Heroku config vars would need to be set via API)
+    console.log(`💡 To persist this, set environment variable: LAST_PROCESSING_${shopDomain.replace(/[.-]/g, '_').toUpperCase()}=${now}`);
+    
     return now;
   } catch (error) {
-    console.error("❌ Error updating last processing date:", error);
+    console.error(`❌ Error updating last processing date for ${shopDomain}:`, error);
   }
 }
 
