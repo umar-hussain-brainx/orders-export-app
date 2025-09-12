@@ -56,7 +56,7 @@ export async function action({ request }) {
 
     // Authenticate with Shopify (this will work for any shop that has the app installed)
     const { admin } = await authenticate.admin(request);
-    
+     console.log("🔑 Authenticated with Shopify");
     // Import the processing function from api.automation
     const { processOrdersAutomatically } = await import("./api.automation");
     
