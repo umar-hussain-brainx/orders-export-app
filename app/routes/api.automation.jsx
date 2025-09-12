@@ -707,6 +707,7 @@ async function createMetaobjectDefinitions(admin) {
 
     // Check if metaobject was created successfully
     if (result.data?.metaobjectDefinitionCreate?.metaobjectDefinition) {
+
       console.log("✅ Upsell Config metaobject definition created successfully!");
       results.push({
         type: "upsell_config",
@@ -813,6 +814,9 @@ async function saveConfiguration(admin, formData) {
       enableNotifications: formData.get("enableNotifications") === "true"
     };
 
+    // Auto-create metaobject definition if it doesn't exist
+    await ensureConfigMetaobjectDefinitionExists(admin);
+
     // Find or create configuration metaobject
     const configMetaobject = await findOrCreateConfigMetaobject(admin, config);
     
@@ -830,10 +834,95 @@ async function saveConfiguration(admin, formData) {
   }
 }
 
+// Ensure config metaobject definition exists (auto-create if needed)
+async function ensureConfigMetaobjectDefinitionExists(admin) {
+  try {
+    // Check if definition already exists
+    const existingDef = await admin.graphql(
+      `#graphql
+        query checkConfigDefinition {
+          metaobjectDefinitions(type: "upsell_config_settings", first: 1) {
+            edges {
+              node {
+                id
+                type
+              }
+            }
+          }
+        }`
+    );
+
+    const result = await existingDef.json();
+    
+    if (result.data?.metaobjectDefinitions?.edges?.length > 0) {
+      console.log("✅ Config metaobject definition already exists");
+      return true;
+    }
+
+    console.log("🔧 Creating config metaobject definition...");
+    
+    // Create the definition
+    const createDef = await admin.graphql(
+      `#graphql
+        mutation createConfigSettingsDefinition($definition: MetaobjectDefinitionCreateInput!) {
+          metaobjectDefinitionCreate(definition: $definition) {
+            metaobjectDefinition {
+              id
+              name
+              type
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+      {
+        variables: {
+          definition: {
+            name: "Upsell Configuration Settings",
+            type: "upsell_config_settings",
+            fieldDefinitions: [
+              { key: "data_period", name: "Data Period (Months)", type: "number_integer" },
+              { key: "schedule", name: "Processing Schedule", type: "single_line_text_field" },
+              { key: "ai_provider", name: "AI Provider", type: "single_line_text_field" },
+              { key: "confidence_threshold", name: "Confidence Threshold", type: "number_decimal" },
+              { key: "max_batches", name: "Max Batches", type: "number_integer" },
+              { key: "enable_notifications", name: "Enable Notifications", type: "boolean" },
+              { key: "last_updated", name: "Last Updated", type: "date_time" }
+            ]
+          }
+        }
+      }
+    );
+
+    const createResult = await createDef.json();
+    
+    if (createResult.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
+      const errors = createResult.data.metaobjectDefinitionCreate.userErrors;
+      console.error("❌ Error creating config definition:", errors);
+      return false;
+    }
+
+    if (createResult.data?.metaobjectDefinitionCreate?.metaobjectDefinition) {
+      console.log("✅ Config metaobject definition created successfully!");
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("❌ Error ensuring config definition exists:", error);
+    return false;
+  }
+}
+
 // Load configuration settings
 async function loadConfiguration(admin) {
   try {
     console.log("📂 Loading configuration settings...");
+    
+    // Auto-create metaobject definition if it doesn't exist
+    await ensureConfigMetaobjectDefinitionExists(admin);
     
     const configMetaobject = await findConfigMetaobject(admin);
     
