@@ -3,7 +3,7 @@
 client_id = "accd8fd895867b20703cbc0ec49019c0"
 name = "ordersExportApp"
 handle = "ordersexportapp-1"
-application_url = "https://2ccf46156fa2.ngrok-free.app"
+application_url = "https://upsell-pairs-generator-24b3c22deee0.herokuapp.com"
 embedded = true
 
 [build]
@@ -31,9 +31,9 @@ scopes = "write_products,read_products,read_orders,read_all_orders,read_customer
 
 [auth]
 redirect_urls = [
-  "https://2ccf46156fa2.ngrok-free.app/auth/callback",
-  "https://2ccf46156fa2.ngrok-free.app/auth/shopify/callback",
-  "https://2ccf46156fa2.ngrok-free.app/api/auth/callback"
+  "https://upsell-pairs-generator-24b3c22deee0.herokuapp.com/auth/callback",
+  "https://upsell-pairs-generator-24b3c22deee0.herokuapp.com/auth/shopify/callback",
+  "https://upsell-pairs-generator-24b3c22deee0.herokuapp.com/api/auth/callback"
 ]
 
 [pos]
