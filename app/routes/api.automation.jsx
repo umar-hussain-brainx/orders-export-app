@@ -45,7 +45,7 @@ export const action = async ({ request }) => {
 };
 
 // Process orders automatically (called by cron or webhook)
-async function processOrdersAutomatically(admin, formData) {
+export async function processOrdersAutomatically(admin, formData) {
   try {
     // Load saved configuration or use defaults
     let dataPeriodMonths = parseInt(formData.get("dataPeriod"));

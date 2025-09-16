@@ -1,12 +1,15 @@
 import { json } from "@remix-run/node";
+import { authenticate } from "../shopify.server";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 // Webhook handler for orders/create - triggers quarterly processing check
 export async function action({ request }) {
   console.log("🛒 Order created webhook received");
-  
+  const { admin,payload } = await authenticate.webhook(request);
   try {
     // Parse the webhook payload
-    const payload = await request.json();
     const order = payload;
     
     console.log(`📦 Order ID: ${order.id}, Shop: ${order.shop_domain || 'unknown'}`);
@@ -37,22 +40,44 @@ export async function action({ request }) {
     
     console.log(`✅ Quarterly processing triggered by order for ${shopDomain}!`);
     
-    // Process orders using direct API calls (no Shopify auth middleware)
-    const result = await processOrdersWithDirectAPI(shopDomain);
+    // Determine quarter info for database record
+    const currentMonth = orderCreatedAt.getMonth();
+    const currentYear = orderCreatedAt.getFullYear();
+    const quarter = Math.floor(currentMonth / 3) + 1;
+    const adjustedQuarter = currentMonth === 8 ? 3 : quarter; // September = Q3 for testing
     
-    // Update last processing date
-    await updateLastProcessingDate(shopDomain);
+    let processingResult;
+    let orderCount = null;
     
-    console.log(`✅ Quarterly processing completed for ${shopDomain}`);
-    
-    return json({
-      success: true,
-      shop: shopDomain,
-      message: `Quarterly processing completed for ${shopDomain}`,
-      result: result,
-      processedAt: new Date().toISOString(),
-      triggeredBy: `order_${order.id}`
-    });
+    try {
+      // Process orders using authenticated admin object
+      processingResult = await processOrdersWithAdmin(admin);
+      orderCount = processingResult?.result?.orders_processed || null;
+      
+      // Record successful processing in database
+      await recordQuarterlyProcessing(shopDomain, currentYear, adjustedQuarter, currentMonth, true, orderCount);
+      
+      console.log(`✅ Quarterly processing completed for ${shopDomain} Q${adjustedQuarter} ${currentYear}`);
+      
+      return json({
+        success: true,
+        shop: shopDomain,
+        quarter: adjustedQuarter,
+        year: currentYear,
+        message: `Quarterly processing completed for ${shopDomain} Q${adjustedQuarter} ${currentYear}`,
+        result: processingResult,
+        processedAt: new Date().toISOString(),
+        triggeredBy: `order_${order.id}`,
+        orderCount: orderCount
+      });
+      
+    } catch (processingError) {
+      // Record failed processing in database
+      await recordQuarterlyProcessing(shopDomain, currentYear, adjustedQuarter, currentMonth, false, null, processingError.message);
+      
+      console.error(`❌ Quarterly processing failed for ${shopDomain}:`, processingError);
+      throw processingError;
+    }
     
   } catch (error) {
     console.error("❌ Webhook processing failed:", error);
@@ -82,7 +107,7 @@ async function isQuarterlyProcessingDue(shopDomain, orderDate) {
     const currentYear = orderDate.getFullYear();
     
     // Quarterly months: January (0), April (3), July (6), October (9)
-    const quarterlyMonths = [0, 3, 6, 9];
+    const quarterlyMonths = [0, 3, 6, 9, 8];
     const isQuarterlyMonth = quarterlyMonths.includes(currentMonth);
     
     if (!isQuarterlyMonth) {
@@ -99,7 +124,7 @@ async function isQuarterlyProcessingDue(shopDomain, orderDate) {
     
     // Check if we're in the first few days of the quarterly month
     const dayOfMonth = orderDate.getDate();
-    if (dayOfMonth > 3) {
+    if (dayOfMonth > 18) {
       const nextQuarterlyMonth = quarterlyMonths.find(month => month > currentMonth) || quarterlyMonths[0];
       const nextYear = nextQuarterlyMonth === quarterlyMonths[0] ? currentYear + 1 : currentYear;
       const nextDate = new Date(nextYear, nextQuarterlyMonth, 1);
@@ -111,30 +136,33 @@ async function isQuarterlyProcessingDue(shopDomain, orderDate) {
       };
     }
     
-    // Check if we already processed this quarter for this shop
-    const lastProcessed = await getLastProcessingDate(shopDomain);
-    if (lastProcessed) {
-      const lastProcessedDate = new Date(lastProcessed);
-      const lastProcessedMonth = lastProcessedDate.getMonth();
-      const lastProcessedYear = lastProcessedDate.getFullYear();
+    // Determine which quarter this is
+    const quarter = Math.floor(currentMonth / 3) + 1; // Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec
+    // Special case for September testing (treat as Q3)
+    const adjustedQuarter = currentMonth === 8 ? 3 : quarter;
+    
+    // Check if we already processed this quarter for this shop using database
+    const processingStatus = await hasQuarterlyProcessingCompleted(shopDomain, currentYear, adjustedQuarter, currentMonth);
+    
+    if (processingStatus.completed) {
+      const nextQuarterlyMonth = quarterlyMonths.find(month => month > currentMonth) || quarterlyMonths[0];
+      const nextYear = nextQuarterlyMonth === quarterlyMonths[0] ? currentYear + 1 : currentYear;
+      const nextDate = new Date(nextYear, nextQuarterlyMonth, 1);
       
-      if (lastProcessedMonth === currentMonth && lastProcessedYear === currentYear) {
-        const nextQuarterlyMonth = quarterlyMonths.find(month => month > currentMonth) || quarterlyMonths[0];
-        const nextYear = nextQuarterlyMonth === quarterlyMonths[0] ? currentYear + 1 : currentYear;
-        const nextDate = new Date(nextYear, nextQuarterlyMonth, 1);
-        
-        return {
-          due: false,
-          message: `Already processed this quarter (${getMonthName(currentMonth)} ${currentYear}) for ${shopDomain}. Next: ${getMonthName(nextQuarterlyMonth)} ${nextYear}`,
-          nextDate: nextDate.toISOString()
-        };
-      }
+      return {
+        due: false,
+        message: `Already processed this quarter Q${adjustedQuarter} ${currentYear} for ${shopDomain} on ${processingStatus.processedAt}. Next: ${getMonthName(nextQuarterlyMonth)} ${nextYear}`,
+        nextDate: nextDate.toISOString(),
+        alreadyProcessed: true
+      };
     }
     
     return {
       due: true,
       message: `Quarterly processing due for ${shopDomain} - ${getMonthName(currentMonth)} ${currentYear}`,
-      currentQuarter: getMonthName(currentMonth)
+      currentQuarter: getMonthName(currentMonth),
+      quarter: adjustedQuarter,
+      year: currentYear
     };
     
   } catch (error) {
@@ -146,48 +174,10 @@ async function isQuarterlyProcessingDue(shopDomain, orderDate) {
   }
 }
 
-// Process orders using direct Shopify API calls
-async function processOrdersWithDirectAPI(shopDomain) {
+// Process orders using authenticated admin object
+async function processOrdersWithAdmin(admin) {
   try {
-    console.log(`🔗 Making direct API calls to ${shopDomain}`);
-    
-    const apiKey = process.env.SHOPIFY_API_KEY;
-    const apiSecret = process.env.SHOPIFY_API_SECRET;
-    
-    if (!apiKey || !apiSecret) {
-      throw new Error("SHOPIFY_API_KEY and SHOPIFY_API_SECRET environment variables are required");
-    }
-    
-    // Create GraphQL client for direct API calls
-    const graphqlEndpoint = `https://${shopDomain}/admin/api/2025-07/graphql.json`;
-    
-    // Get access token for this shop (you'll need to implement this based on your auth flow)
-    const accessToken = await getShopAccessToken(shopDomain);
-    
-    if (!accessToken) {
-      throw new Error(`No access token found for shop: ${shopDomain}`);
-    }
-    
-    // Create a mock admin object that mimics the authenticate.admin result
-    const mockAdmin = {
-      graphql: async (query, options = {}) => {
-        const response = await fetch(graphqlEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Shopify-Access-Token': accessToken,
-          },
-          body: JSON.stringify({
-            query: query,
-            variables: options.variables || {}
-          })
-        });
-        
-        return {
-          json: () => response.json()
-        };
-      }
-    };
+    console.log("📊 Processing orders using authenticated admin object...");
     
     // Import and call the existing processing function
     const { processOrdersAutomatically } = await import("./api.automation");
@@ -197,68 +187,86 @@ async function processOrdersWithDirectAPI(shopDomain) {
     formData.append("action", "processOrders");
     formData.append("dataPeriod", "3"); // 3 months for quarterly
     
-    console.log("📊 Processing last 3 months of orders via direct API...");
+    console.log("📊 Processing last 3 months of orders...");
     
-    // Process orders using the existing logic
-    const result = await processOrdersAutomatically(mockAdmin, formData);
+    // Process orders using the existing logic with authenticated admin
+    const result = await processOrdersAutomatically(admin, formData);
     
     return result;
     
   } catch (error) {
-    console.error(`❌ Error processing orders with direct API for ${shopDomain}:`, error);
+    console.error("❌ Error processing orders with admin object:", error);
     throw error;
   }
 }
 
-// Get access token for a shop (implement based on your storage mechanism)
-async function getShopAccessToken(shopDomain) {
+// No need for manual access token management - using authenticate.webhook(request)
+
+// Check if quarterly processing already completed for this shop/quarter
+async function hasQuarterlyProcessingCompleted(shopDomain, year, quarter, month) {
   try {
-    // This is a placeholder - you'll need to implement this based on how you store access tokens
-    // Options:
-    // 1. Environment variable for single shop: process.env.SHOPIFY_ACCESS_TOKEN
-    // 2. Database lookup for multi-shop
-    // 3. Session storage lookup
-    
-    // For single shop, you can use an environment variable
-    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
-    
-    if (accessToken) {
-      console.log(`✅ Found access token for ${shopDomain}`);
-      return accessToken;
+    const existingRecord = await prisma.quarterlyProcessing.findUnique({
+      where: {
+        shop_year_quarter: {
+          shop: shopDomain,
+          year: year,
+          quarter: quarter
+        }
+      }
+    });
+
+    if (existingRecord) {
+      console.log(`✅ Found existing quarterly processing record for ${shopDomain} Q${quarter} ${year}`);
+      return {
+        completed: true,
+        processedAt: existingRecord.processedAt,
+        success: existingRecord.success
+      };
     }
-    
-    // For multi-shop, you'd query your database here
-    // const token = await db.getAccessTokenForShop(shopDomain);
-    
-    console.error(`❌ No access token found for shop: ${shopDomain}`);
-    return null;
-    
+
+    console.log(`❌ No quarterly processing record found for ${shopDomain} Q${quarter} ${year}`);
+    return { completed: false };
+
   } catch (error) {
-    console.error(`❌ Error getting access token for ${shopDomain}:`, error);
-    return null;
+    console.error(`❌ Error checking quarterly processing status for ${shopDomain}:`, error);
+    return { completed: false, error: error.message };
   }
 }
 
-// Get last processing date for a specific shop
-async function getLastProcessingDate(shopDomain) {
+// Record quarterly processing completion in database
+async function recordQuarterlyProcessing(shopDomain, year, quarter, month, success = true, orderCount = null, errorMessage = null) {
   try {
-    const envKey = `LAST_PROCESSING_${shopDomain.replace(/[.-]/g, '_').toUpperCase()}`;
-    return process.env[envKey] || null;
-  } catch (error) {
-    console.error(`❌ Error getting last processing date for ${shopDomain}:`, error);
-    return null;
-  }
-}
+    const record = await prisma.quarterlyProcessing.upsert({
+      where: {
+        shop_year_quarter: {
+          shop: shopDomain,
+          year: year,
+          quarter: quarter
+        }
+      },
+      update: {
+        processedAt: new Date(),
+        success: success,
+        orderCount: orderCount,
+        errorMessage: errorMessage
+      },
+      create: {
+        shop: shopDomain,
+        year: year,
+        quarter: quarter,
+        month: month,
+        success: success,
+        orderCount: orderCount,
+        errorMessage: errorMessage
+      }
+    });
 
-// Update last processing date for a specific shop
-async function updateLastProcessingDate(shopDomain) {
-  try {
-    const now = new Date().toISOString();
-    console.log(`📅 Updated last processing date for ${shopDomain} to: ${now}`);
-    console.log(`💡 To persist this, set environment variable: LAST_PROCESSING_${shopDomain.replace(/[.-]/g, '_').toUpperCase()}=${now}`);
-    return now;
+    console.log(`📅 Recorded quarterly processing for ${shopDomain} Q${quarter} ${year}: ${success ? 'SUCCESS' : 'FAILED'}`);
+    return record;
+
   } catch (error) {
-    console.error(`❌ Error updating last processing date for ${shopDomain}:`, error);
+    console.error(`❌ Error recording quarterly processing for ${shopDomain}:`, error);
+    throw error;
   }
 }
 

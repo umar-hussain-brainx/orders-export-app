@@ -30,3 +30,18 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
 }
+
+model QuarterlyProcessing {
+  id            String   @id @default(cuid())
+  shop          String
+  year          Int
+  quarter       Int      // 1, 2, 3, 4
+  month         Int      // 1, 4, 7, 10 (or 9 for testing)
+  processedAt   DateTime @default(now())
+  orderCount    Int?     // Number of orders processed
+  success       Boolean  @default(true)
+  errorMessage  String?
+  
+  @@unique([shop, year, quarter])
+  @@index([shop, year, quarter])
+}
