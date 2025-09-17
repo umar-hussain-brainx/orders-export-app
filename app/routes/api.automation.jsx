@@ -674,8 +674,8 @@ async function createMetaobjectDefinitions(admin) {
             name: "Upsell Configuration",
             type: "upsell_config",
             fieldDefinitions: [
-              { key: "upsell_json_data", name: "Upsell Pairs JSON", type: "multi_line_text_field" },
-              { key: "alternative_upsells", name: "Alternative Upsells JSON", type: "multi_line_text_field" },
+              { key: "upsell_json_data", name: "Upsell Pairs JSON", type: "json" },
+              { key: "alternative_upsells", name: "Alternative Upsells JSON", type: "json" },
               { key: "trending_products", name: "Trending Products JSON", type: "multi_line_text_field" },
               { key: "total_pairs_found", name: "Total Pairs Found", type: "number_integer" },
               { key: "total_trending_products", name: "Total Trending Products", type: "number_integer" },
