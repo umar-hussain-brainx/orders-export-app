@@ -364,7 +364,7 @@ function createAIPrompt(data) {
   return `
 TASK: Analyze e-commerce order data to create upsell recommendations for cart optimization.
 
-GOAL: When customers add a "main_product" to cart, show them "upsellVariants" that are frequently bought together.
+GOAL: When customers add a "main_product" to cart, show them "upsellVariants" that are frequently bought together. Also create "alternative_upsells" for when no main products are in cart.
 
 DATA ANALYSIS:
 - Orders analyzed: ${data.orders_count}
@@ -373,9 +373,11 @@ DATA ANALYSIS:
 
 INSTRUCTIONS:
 1. Find products that are frequently bought together
-2. For each main product, identify 2-4 products that customers often add to the same order
+2. For each main product, identify MINIMUM 4 products that customers often add to the same order
 3. Focus on products with high co-purchase frequency (bought together multiple times)
 4. Create upsell recommendations to increase average order value
+5. Each main_product MUST have exactly 4 upsellVariants
+6. Create alternative_upsells (4 popular products) to show when no main products are in cart
 
 REQUIRED OUTPUT FORMAT - Return ONLY this JSON structure:
 {
@@ -385,25 +387,35 @@ REQUIRED OUTPUT FORMAT - Return ONLY this JSON structure:
       "upsellVariants": [
         {"id": "7148360630405"},
         {"id": "7148360728709"},
-        {"id": "7148360761477"}
+        {"id": "7148360761477"},
+        {"id": "7148360695941"}
       ]
     },
     {
       "main_product": "4120463068435", 
       "upsellVariants": [
         {"id": "7148360695941"},
-        {"id": "7148360728709"}
+        {"id": "7148360728709"},
+        {"id": "7148360761477"},
+        {"id": "7148360630405"}
       ]
     }
+  ],
+  "alternative_upsells": [
+    {"id": "7148360237189"},
+    {"id": "4120463068435"},
+    {"id": "7148360630405"},
+    {"id": "7148360728709"}
   ]
 }
 
 IMPORTANT RULES:
 - Use actual product IDs from the data (remove gid://shopify/Product/ prefix)
 - Only include products that are genuinely bought together (frequency > 2)
-- Limit 2-4 upsellVariants per main_product
+- MUST have exactly 4 upsellVariants per main_product (no more, no less)
+- MUST have exactly 4 alternative_upsells (most popular/trending products)
 - Focus on increasing sales through smart recommendations
-- NO other fields needed - just main_product and upsellVariants array
+- Include both upsell_recommendations and alternative_upsells in response
 `;
 }
 
@@ -411,6 +423,9 @@ IMPORTANT RULES:
 function createFallbackResponse(data) {
   const upsellRecommendations = [];
   const processedMainProducts = new Set();
+  
+  // Get all unique products for fallback upsells
+  const allProducts = Object.keys(data.product_frequency);
 
   // Process co-purchase data to create upsell recommendations
   const sortedCoPurchases = Object.entries(data.co_purchases)
@@ -444,8 +459,68 @@ function createFallbackResponse(data) {
     }
   });
 
+  // Ensure each main product has exactly 4 upsellVariants
+  upsellRecommendations.forEach(recommendation => {
+    while (recommendation.upsellVariants.length < 4) {
+      // Find products not already in upsellVariants
+      const availableProducts = allProducts.filter(productId => {
+        const cleanId = productId.replace('gid://shopify/Product/', '');
+        return cleanId !== recommendation.main_product && 
+               !recommendation.upsellVariants.some(variant => variant.id === cleanId);
+      });
+      
+      if (availableProducts.length > 0) {
+        // Add the most popular available product
+        const mostPopular = availableProducts.sort((a, b) => 
+          (data.product_frequency[b] || 0) - (data.product_frequency[a] || 0)
+        )[0];
+        
+        recommendation.upsellVariants.push({ 
+          id: mostPopular.replace('gid://shopify/Product/', '') 
+        });
+      } else {
+        // If no more products available, duplicate existing ones to reach 4
+        const existingVariants = [...recommendation.upsellVariants];
+        if (existingVariants.length > 0) {
+          recommendation.upsellVariants.push(existingVariants[0]);
+        }
+      }
+    }
+  });
+
+  // Create alternative upsells - 4 most popular products not used as main products
+  const mainProductIds = new Set(upsellRecommendations.map(rec => rec.main_product));
+  const alternativeUpsells = Object.entries(data.product_frequency)
+    .sort(([,a], [,b]) => b - a) // Sort by frequency (most popular first)
+    .filter(([productId]) => {
+      const cleanId = productId.replace('gid://shopify/Product/', '');
+      return !mainProductIds.has(cleanId); // Exclude main products
+    })
+    .slice(0, 4) // Take top 4
+    .map(([productId]) => ({
+      id: productId.replace('gid://shopify/Product/', '')
+    }));
+
+  // If we don't have 4 alternative upsells, fill with any available products
+  while (alternativeUpsells.length < 4 && allProducts.length > 0) {
+    const availableProduct = allProducts.find(productId => {
+      const cleanId = productId.replace('gid://shopify/Product/', '');
+      return !mainProductIds.has(cleanId) && 
+             !alternativeUpsells.some(alt => alt.id === cleanId);
+    });
+    
+    if (availableProduct) {
+      alternativeUpsells.push({
+        id: availableProduct.replace('gid://shopify/Product/', '')
+      });
+    } else {
+      break;
+    }
+  }
+
   return {
     upsell_recommendations: upsellRecommendations.slice(0, 10), // Limit to top 10 main products
+    alternative_upsells: alternativeUpsells,
     fallback_used: true
   };
 }
@@ -502,7 +577,7 @@ async function updateMainAnalysisMetaobject(admin, aiResults, formData) {
 
     // AI now returns data in your exact format - no transformation needed!
     const upsellData = aiResults.upsell_recommendations || [];
-    const alternativeData = []; // Can be used for different upsell strategies later
+    const alternativeData = aiResults.alternative_upsells || [];
 
     const analysisData = {
       upsell_json_data: JSON.stringify(upsellData),
