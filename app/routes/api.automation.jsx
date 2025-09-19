@@ -402,10 +402,14 @@ REQUIRED OUTPUT FORMAT - Return ONLY this JSON structure:
     }
   ],
   "alternative_upsells": [
-    {"id": "7148360237189"},
-    {"id": "4120463068435"},
-    {"id": "7148360630405"},
-    {"id": "7148360728709"}
+    {
+      "upsellVariants": [
+        {"id": "7148360237189"},
+        {"id": "4120463068435"},
+        {"id": "7148360630405"},
+        {"id": "7148360728709"}
+      ]
+    }
   ]
 }
 
@@ -490,33 +494,34 @@ function createFallbackResponse(data) {
 
   // Create alternative upsells - 4 most popular products not used as main products
   const mainProductIds = new Set(upsellRecommendations.map(rec => rec.main_product));
-  const alternativeUpsells = Object.entries(data.product_frequency)
+  const alternativeProductIds = Object.entries(data.product_frequency)
     .sort(([,a], [,b]) => b - a) // Sort by frequency (most popular first)
     .filter(([productId]) => {
       const cleanId = productId.replace('gid://shopify/Product/', '');
       return !mainProductIds.has(cleanId); // Exclude main products
     })
     .slice(0, 4) // Take top 4
-    .map(([productId]) => ({
-      id: productId.replace('gid://shopify/Product/', '')
-    }));
+    .map(([productId]) => productId.replace('gid://shopify/Product/', ''));
 
   // If we don't have 4 alternative upsells, fill with any available products
-  while (alternativeUpsells.length < 4 && allProducts.length > 0) {
+  while (alternativeProductIds.length < 4 && allProducts.length > 0) {
     const availableProduct = allProducts.find(productId => {
       const cleanId = productId.replace('gid://shopify/Product/', '');
       return !mainProductIds.has(cleanId) && 
-             !alternativeUpsells.some(alt => alt.id === cleanId);
+             !alternativeProductIds.includes(cleanId);
     });
     
     if (availableProduct) {
-      alternativeUpsells.push({
-        id: availableProduct.replace('gid://shopify/Product/', '')
-      });
+      alternativeProductIds.push(availableProduct.replace('gid://shopify/Product/', ''));
     } else {
       break;
     }
   }
+
+  // Format alternative upsells in the correct structure
+  const alternativeUpsells = [{
+    upsellVariants: alternativeProductIds.map(id => ({ id }))
+  }];
 
   return {
     upsell_recommendations: upsellRecommendations.slice(0, 10), // Limit to top 10 main products
