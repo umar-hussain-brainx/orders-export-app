@@ -124,7 +124,7 @@ async function isQuarterlyProcessingDue(shopDomain, orderDate) {
     
     // Check if we're in the first few days of the quarterly month
     const dayOfMonth = orderDate.getDate();
-    if (dayOfMonth > 18) {
+    if (dayOfMonth > 25) {
       const nextQuarterlyMonth = quarterlyMonths.find(month => month > currentMonth) || quarterlyMonths[0];
       const nextYear = nextQuarterlyMonth === quarterlyMonths[0] ? currentYear + 1 : currentYear;
       const nextDate = new Date(nextYear, nextQuarterlyMonth, 1);
